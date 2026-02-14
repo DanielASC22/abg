@@ -76,7 +76,7 @@ export function useHandTracking(onGestureTrigger: (sliceIndex: number) => void) 
         const distance = Math.hypot(thumb.x - finger.x, thumb.y - finger.y);
 
         if (distance < threshold) {
-          const padIndex = isLeftHand ? i : i + 4;
+          const padIndex = isLeftHand ? (3 - i) : i + 4;
           // Debounce per-pad
           if (now - lastTriggerTimeRef.current[padIndex] > DEBOUNCE_MS) {
             lastTriggerTimeRef.current[padIndex] = now;
