@@ -45,6 +45,10 @@ export function PadGrid({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept keys when user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
       // Always intercept space to prevent scrolling and button toggling
       if (e.key === ' ') {
         e.preventDefault();
