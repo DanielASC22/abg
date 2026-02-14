@@ -45,16 +45,21 @@ export function PadGrid({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Always intercept space to prevent scrolling and button toggling
+      if (e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat && isLoaded) {
+          onSpaceChange(true);
+        }
+        return;
+      }
+
       if (e.repeat) return;
       if (!isLoaded) return;
 
       if (e.key === 'Shift') {
         onShiftChange(true);
-        return;
-      }
-      if (e.key === ' ') {
-        e.preventDefault();
-        onSpaceChange(true);
         return;
       }
 
