@@ -111,10 +111,19 @@ export function useAudioEngine() {
   stateRef.current = state;
 
   const getBeatDuration = useCallback(() => {
-    const { bpm, quantize, timeMultiplier } = stateRef.current;
+    const buffer = bufferRef.current;
+    if (!buffer) return 0.1;
+    // Each slice's real-time duration is the source of truth
+    const sliceDuration = buffer.duration / NUM_SLICES;
+    const { bpm, timeMultiplier } = stateRef.current;
+    const originalBpm = 140;
     const effectiveBpm = bpm * timeMultiplier;
-    const sixteenthDuration = 60 / effectiveBpm / 4;
-    return quantize === '1/8' ? sixteenthDuration * 2 : sixteenthDuration;
+    const rate = effectiveBpm / originalBpm;
+    // Base duration is one slice; quantize subdivision can halve it
+    const baseDuration = sliceDuration / rate;
+    const { quantize } = stateRef.current;
+    // 1/16 = one slice per beat, 1/8 = two slices per beat (skip every other)
+    return quantize === '1/8' ? baseDuration * 2 : baseDuration;
   }, []);
 
   const playSliceAtTime = useCallback((sliceIndex: number, time: number, reverse: boolean, stutter: boolean) => {
@@ -242,11 +251,11 @@ export function useAudioEngine() {
       bitcrusherRef.current = bitcrusher;
 
       const limiter = ctx.createDynamicsCompressor();
-      limiter.threshold.value = -3;
-      limiter.knee.value = 0;
-      limiter.ratio.value = 20;
-      limiter.attack.value = 0.001;
-      limiter.release.value = 0.05;
+      limiter.threshold.value = -1;
+      limiter.knee.value = 6;
+      limiter.ratio.value = 4;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.1;
       limiterRef.current = limiter;
 
       const delayNode = ctx.createDelay(2);
