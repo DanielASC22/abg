@@ -92,13 +92,13 @@ export function useAudioEngine() {
     isAutoMode: false,
     activeSlice: null,
     bpm: 140,
-    chaos: 0.2,
+    chaos: 0,
     filterFreq: 20000,
     filterQ: 1,
     filterType: 'highpass',
     bitcrushMix: 0,
     delayTime: 0.3,
-    delayFeedback: 0.3,
+    delayFeedback: 0,
     error: null,
     waveformData: null,
     quantize: '1/16',
@@ -254,14 +254,14 @@ export function useAudioEngine() {
       delayNodeRef.current = delayNode;
 
       const feedbackGain = ctx.createGain();
-      feedbackGain.gain.value = 0.3;
+      feedbackGain.gain.value = 0;
       delayFeedbackRef.current = feedbackGain;
 
       const dryGain = ctx.createGain();
       dryGain.gain.value = 1;
 
       const wetGain = ctx.createGain();
-      wetGain.gain.value = 0.3;
+      wetGain.gain.value = 0;
       wetGainRef.current = wetGain;
 
       // Chain
