@@ -7,10 +7,16 @@ const SCHEDULE_INTERVAL = 25; // ms
 
 export type QuantizeMode = '1/16' | '1/8';
 
+// Sequence step: slice index, null = rest, -1 = hold
+export type SequenceStep = number | null;
+
 interface AudioEngineState {
   isLoaded: boolean;
   isPlaying: boolean;
   isAutoMode: boolean;
+  isSequenceMode: boolean;
+  sequencePosition: number;
+  sequenceLength: number;
   activeSlice: number | null;
   bpm: number;
   chaos: number;
@@ -23,7 +29,7 @@ interface AudioEngineState {
   error: string | null;
   waveformData: number[] | null;
   quantize: QuantizeMode;
-  timeMultiplier: number; // 0.5 = half, 1 = normal, 2 = double
+  timeMultiplier: number;
   isShiftHeld: boolean;
   isSpaceHeld: boolean;
 }
@@ -86,10 +92,18 @@ export function useAudioEngine() {
   const stutterActiveRef = useRef(false);
   const lastPlayedSliceRef = useRef(0);
 
+  // Sequence refs
+  const sequenceRef = useRef<SequenceStep[]>([]);
+  const sequenceStepRef = useRef(0);
+  const isSequenceModeRef = useRef(false);
+
   const [state, setState] = useState<AudioEngineState>({
     isLoaded: false,
     isPlaying: false,
     isAutoMode: false,
+    isSequenceMode: false,
+    sequencePosition: 0,
+    sequenceLength: 0,
     activeSlice: null,
     bpm: 140,
     chaos: 0,
@@ -178,26 +192,53 @@ export function useAudioEngine() {
       const isReverse = stateRef.current.isShiftHeld;
       const isStutter = stutterActiveRef.current;
 
+      // Sequence mode
+      if (isSequenceModeRef.current) {
+        const seq = sequenceRef.current;
+        if (seq.length === 0) {
+          nextBeatTimeRef.current += getBeatDuration();
+          continue;
+        }
+        const step = sequenceStepRef.current % seq.length;
+        const val = seq[step];
+
+        // Update position for visual tracking
+        setState(s => ({ ...s, sequencePosition: step }));
+
+        if (val === null) {
+          // Rest — silence, stop current source
+          if (currentSourceRef.current) {
+            try { currentSourceRef.current.stop(); } catch {}
+          }
+          setState(s => ({ ...s, activeSlice: null }));
+        } else if (val === -1) {
+          // Hold — do nothing, let previous slice continue
+        } else {
+          playSliceAtTime(val, nextBeatTimeRef.current, isReverse, false);
+        }
+
+        sequenceStepRef.current = step + 1;
+        nextBeatTimeRef.current += getBeatDuration();
+        continue;
+      }
+
       let sliceToPlay: number;
 
       if (queuedSliceRef.current !== null) {
-        // Manual trigger takes priority
         sliceToPlay = queuedSliceRef.current;
         queuedSliceRef.current = null;
-        autoStepRef.current = sliceToPlay; // sync auto-gen position
+        autoStepRef.current = sliceToPlay;
       } else if (isStutter) {
-        // Stutter repeats the last played slice
         sliceToPlay = lastPlayedSliceRef.current;
       } else if (isAutoMode) {
         if (Math.random() < chaos) {
           sliceToPlay = Math.random() < 0.3
-            ? autoStepRef.current % NUM_SLICES // stutter
-            : Math.floor(Math.random() * NUM_SLICES); // random
+            ? autoStepRef.current % NUM_SLICES
+            : Math.floor(Math.random() * NUM_SLICES);
         } else {
           sliceToPlay = autoStepRef.current % NUM_SLICES;
         }
       } else {
-        // Not in auto mode and no queued slice — don't play
         nextBeatTimeRef.current += getBeatDuration();
         continue;
       }
@@ -232,7 +273,9 @@ export function useAudioEngine() {
     if (currentSourceRef.current) {
       try { currentSourceRef.current.stop(); } catch {}
     }
-    setState(s => ({ ...s, isPlaying: false, isAutoMode: false, activeSlice: null }));
+    isSequenceModeRef.current = false;
+    sequenceStepRef.current = 0;
+    setState(s => ({ ...s, isPlaying: false, isAutoMode: false, isSequenceMode: false, sequencePosition: 0, activeSlice: null }));
   }, []);
 
   const initAudio = useCallback(async () => {
@@ -419,6 +462,37 @@ export function useAudioEngine() {
     setState(s => ({ ...s, isSpaceHeld: held }));
   }, []);
 
+  // Sequence mode: parse string to steps and play
+  const CHAR_TO_SLICE: Record<string, number> = {
+    '1': 0, '2': 1, '3': 2, '4': 3,
+    'q': 4, 'w': 5, 'e': 6, 'r': 7,
+    'a': 8, 's': 9, 'd': 10, 'f': 11,
+    'z': 12, 'x': 13, 'c': 14, 'v': 15,
+  };
+
+  const playSequence = useCallback((input: string) => {
+    if (!bufferRef.current) return;
+    // Stop any current playback
+    stopScheduler();
+
+    const steps: SequenceStep[] = input.toLowerCase().split('').map(ch => {
+      if (ch === '.' || ch === ' ') return null; // rest
+      if (ch === '-') return -1; // hold
+      const slice = CHAR_TO_SLICE[ch];
+      return slice !== undefined ? slice : null;
+    });
+
+    sequenceRef.current = steps;
+    sequenceStepRef.current = 0;
+    isSequenceModeRef.current = true;
+    setState(s => ({ ...s, isSequenceMode: true, sequenceLength: steps.length, sequencePosition: 0 }));
+    startScheduler();
+  }, [startScheduler, stopScheduler]);
+
+  const stopSequence = useCallback(() => {
+    stopScheduler();
+  }, [stopScheduler]);
+
   useEffect(() => {
     return () => {
       if (schedulerRef.current) clearTimeout(schedulerRef.current);
@@ -444,5 +518,7 @@ export function useAudioEngine() {
     setShiftHeld,
     setSpaceHeld,
     loadUserSample,
+    playSequence,
+    stopSequence,
   };
 }

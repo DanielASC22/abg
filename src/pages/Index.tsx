@@ -7,9 +7,10 @@ import { PadGrid } from '@/components/PadGrid';
 import { TransportControls } from '@/components/TransportControls';
 import { EffectsRack } from '@/components/EffectsRack';
 import { CameraOverlay } from '@/components/CameraOverlay';
+import { SequenceEditor } from '@/components/SequenceEditor';
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'sampler' | 'camera'>('sampler');
+  const [activeTab, setActiveTab] = useState<'sampler' | 'sequence' | 'camera'>('sampler');
   const [sampleName, setSampleName] = useState('Amen Break');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const {
@@ -30,6 +31,8 @@ const Index = () => {
     setShiftHeld,
     setSpaceHeld,
     loadUserSample,
+    playSequence,
+    stopSequence,
   } = useAudioEngine();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,6 +131,25 @@ const Index = () => {
           )}
         </button>
         <button
+          onClick={() => setActiveTab('sequence')}
+          className={`
+            px-5 py-2.5 font-display text-xs uppercase tracking-widest
+            transition-all duration-150 relative flex items-center gap-2
+            ${activeTab === 'sequence'
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground'
+            }
+          `}
+        >
+          <span>Sequence</span>
+          {state.isSequenceMode && (
+            <div className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--led-green))] led-glow-green" />
+          )}
+          {activeTab === 'sequence' && (
+            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary led-glow" />
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab('camera')}
           className={`
             px-5 py-2.5 font-display text-xs uppercase tracking-widest
@@ -215,6 +237,79 @@ const Index = () => {
                 onDelayTime={setDelayTime}
                 onDelayFeedback={setDelayFeedback}
               />
+            </div>
+          </>
+        ) : activeTab === 'sequence' ? (
+          <>
+            <div className="mb-4 md:mb-6">
+              <WaveformDisplay
+                waveformData={state.waveformData}
+                activeSlice={state.activeSlice}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 md:gap-6">
+              <div className="space-y-4">
+                <SequenceEditor
+                  isPlaying={state.isPlaying}
+                  isSequenceMode={state.isSequenceMode}
+                  sequencePosition={state.sequencePosition}
+                  sequenceLength={state.sequenceLength}
+                  isLoaded={state.isLoaded}
+                  onPlaySequence={playSequence}
+                  onStopSequence={stopSequence}
+                />
+
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                  <span className="font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                    Trigger Pads
+                  </span>
+                  <span className="text-[9px] text-muted-foreground/50 font-mono ml-auto">
+                    SHIFT=reverse • SPACE=stutter
+                  </span>
+                </div>
+
+                <PadGrid
+                  activeSlice={state.activeSlice}
+                  onTrigger={triggerSlice}
+                  isLoaded={state.isLoaded}
+                  onShiftChange={setShiftHeld}
+                  onSpaceChange={setSpaceHeld}
+                />
+              </div>
+
+              <div className="space-y-4">
+                <TransportControls
+                  isPlaying={state.isPlaying}
+                  isAutoMode={state.isAutoMode}
+                  bpm={state.bpm}
+                  chaos={state.chaos}
+                  quantize={state.quantize}
+                  timeMultiplier={state.timeMultiplier}
+                  isShiftHeld={state.isShiftHeld}
+                  isSpaceHeld={state.isSpaceHeld}
+                  onToggleAuto={toggleAutoGen}
+                  onBpmChange={setBpm}
+                  onChaosChange={setChaos}
+                  onQuantizeChange={setQuantize}
+                  onTimeMultiplierChange={setTimeMultiplier}
+                />
+                <EffectsRack
+                  filterFreq={state.filterFreq}
+                  filterQ={state.filterQ}
+                  filterType={state.filterType}
+                  bitcrushMix={state.bitcrushMix}
+                  delayTime={state.delayTime}
+                  delayFeedback={state.delayFeedback}
+                  onFilterFreq={setFilterFreq}
+                  onFilterQ={setFilterQ}
+                  onFilterType={setFilterType}
+                  onBitcrushMix={setBitcrushMix}
+                  onDelayTime={setDelayTime}
+                  onDelayFeedback={setDelayFeedback}
+                />
+              </div>
             </div>
           </>
         ) : (
