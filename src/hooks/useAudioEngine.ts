@@ -76,6 +76,7 @@ export function useAudioEngine() {
   const bufferRef = useRef<AudioBuffer | null>(null);
   const reversedBufferRef = useRef<AudioBuffer | null>(null);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const currentGainRef = useRef<GainNode | null>(null);
   const filterRef = useRef<BiquadFilterNode | null>(null);
   const bitcrusherRef = useRef<ReturnType<typeof createBitcrusher> | null>(null);
   const delayNodeRef = useRef<DelayNode | null>(null);
@@ -145,15 +146,21 @@ export function useAudioEngine() {
     const buffer = reverse ? reversedBufferRef.current : bufferRef.current;
     if (!ctx || !buffer) return;
 
-    if (currentSourceRef.current) {
-      try { currentSourceRef.current.stop(); } catch {}
+    const FADE_TIME = 0.005; // 5ms crossfade to eliminate clicks
+
+    // Crossfade out the previous source instead of hard-stopping
+    if (currentSourceRef.current && currentGainRef.current) {
+      const prevGain = currentGainRef.current;
+      prevGain.gain.setValueAtTime(prevGain.gain.value, time);
+      prevGain.gain.linearRampToValueAtTime(0, time + FADE_TIME);
+      const prevSource = currentSourceRef.current;
+      try { prevSource.stop(time + FADE_TIME + 0.01); } catch {}
     }
 
     const sliceDuration = buffer.duration / NUM_SLICES;
     let offset: number;
 
     if (reverse) {
-      // For reversed buffer, slices are mirrored
       offset = (NUM_SLICES - 1 - sliceIndex) * sliceDuration;
     } else {
       offset = sliceIndex * sliceDuration;
@@ -162,17 +169,23 @@ export function useAudioEngine() {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
 
-    // Adjust playback rate
     const originalBpm = 140;
     const effectiveBpm = stateRef.current.bpm * stateRef.current.timeMultiplier;
     source.playbackRate.value = effectiveBpm / originalBpm;
 
-    // Stutter: play only 1/32 of the slice repeatedly
     const playDuration = stutter ? sliceDuration / 2 : sliceDuration;
 
-    source.connect(filterRef.current!);
-    source.start(time, offset, playDuration);
+    // Per-voice gain node for crossfading
+    const voiceGain = ctx.createGain();
+    voiceGain.gain.setValueAtTime(0, time);
+    voiceGain.gain.linearRampToValueAtTime(1, time + FADE_TIME);
+
+    source.connect(voiceGain);
+    voiceGain.connect(filterRef.current!);
+    // Add a tiny overlap to prevent micro-gaps
+    source.start(time, offset, playDuration + FADE_TIME * 2);
     currentSourceRef.current = source;
+    currentGainRef.current = voiceGain;
     lastPlayedSliceRef.current = sliceIndex;
 
     setState(s => ({ ...s, activeSlice: sliceIndex }));
