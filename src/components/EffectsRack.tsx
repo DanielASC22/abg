@@ -3,12 +3,14 @@ import { ControlKnob } from './ControlKnob';
 interface EffectsRackProps {
   filterFreq: number;
   filterQ: number;
-  distortion: number;
+  filterType: 'highpass' | 'lowpass';
+  bitcrushMix: number;
   delayTime: number;
   delayFeedback: number;
   onFilterFreq: (v: number) => void;
   onFilterQ: (v: number) => void;
-  onDistortion: (v: number) => void;
+  onFilterType: (v: 'highpass' | 'lowpass') => void;
+  onBitcrushMix: (v: number) => void;
   onDelayTime: (v: number) => void;
   onDelayFeedback: (v: number) => void;
 }
@@ -16,12 +18,14 @@ interface EffectsRackProps {
 export function EffectsRack({
   filterFreq,
   filterQ,
-  distortion,
+  filterType,
+  bitcrushMix,
   delayTime,
   delayFeedback,
   onFilterFreq,
   onFilterQ,
-  onDistortion,
+  onFilterType,
+  onBitcrushMix,
   onDelayTime,
   onDelayFeedback,
 }: EffectsRackProps) {
@@ -34,9 +38,17 @@ export function EffectsRack({
 
       {/* Filter */}
       <div className="surface-inset rounded-md p-3 space-y-3">
-        <span className="text-[9px] font-display uppercase tracking-widest text-muted-foreground">
-          HP Filter
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-[9px] font-display uppercase tracking-widest text-muted-foreground">
+            Resonant Filter
+          </span>
+          <button
+            onClick={() => onFilterType(filterType === 'highpass' ? 'lowpass' : 'highpass')}
+            className="text-[9px] font-mono text-primary px-2 py-0.5 rounded surface-raised hover:brightness-125"
+          >
+            {filterType === 'highpass' ? 'HP' : 'LP'}
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <ControlKnob
             label="Freq"
@@ -59,18 +71,19 @@ export function EffectsRack({
         </div>
       </div>
 
-      {/* Distortion */}
+      {/* Bitcrusher */}
       <div className="surface-inset rounded-md p-3 space-y-3">
         <span className="text-[9px] font-display uppercase tracking-widest text-muted-foreground">
-          Degrader
+          Bitcrusher
         </span>
         <ControlKnob
-          label="Drive"
-          value={distortion}
+          label="Crush"
+          value={bitcrushMix}
           min={0}
           max={1}
           step={0.01}
-          onChange={onDistortion}
+          onChange={onBitcrushMix}
+          displayValue={`${Math.round(bitcrushMix * 100)}%`}
         />
       </div>
 
