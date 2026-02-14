@@ -285,45 +285,70 @@ export function useAudioEngine() {
       delayNode.connect(wetGain);
       wetGain.connect(ctx.destination);
 
-      // Load sample
-      const response = await fetch(AMEN_URL);
-      if (!response.ok) throw new Error('Failed to load sample');
-      const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-      bufferRef.current = audioBuffer;
+      // Load default sample
+      await loadSampleFromUrl(AMEN_URL, ctx);
 
-      // Create reversed buffer
-      const reversed = ctx.createBuffer(
-        audioBuffer.numberOfChannels,
-        audioBuffer.length,
-        audioBuffer.sampleRate
-      );
-      for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-        const src = audioBuffer.getChannelData(ch);
-        const dst = reversed.getChannelData(ch);
-        for (let i = 0; i < src.length; i++) {
-          dst[i] = src[src.length - 1 - i];
-        }
-      }
-      reversedBufferRef.current = reversed;
-
-      // Extract waveform data
-      const channelData = audioBuffer.getChannelData(0);
-      const waveform = new Float32Array(800);
-      const step = Math.floor(channelData.length / 800);
-      for (let i = 0; i < 800; i++) {
-        let sum = 0;
-        for (let j = 0; j < step; j++) {
-          sum += Math.abs(channelData[i * step + j] || 0);
-        }
-        waveform[i] = sum / step;
-      }
-
-      setState(s => ({ ...s, isLoaded: true, waveformData: Array.from(waveform), error: null }));
+      setState(s => ({ ...s, error: null }));
     } catch (err) {
       setState(s => ({ ...s, error: (err as Error).message }));
     }
   }, []);
+
+  const loadSampleFromUrl = useCallback(async (url: string, ctx?: AudioContext) => {
+    const audioCtx = ctx || ctxRef.current;
+    if (!audioCtx) return;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Failed to load sample');
+    const arrayBuffer = await response.arrayBuffer();
+    await loadSampleFromArrayBuffer(arrayBuffer, audioCtx);
+  }, []);
+
+  const loadSampleFromArrayBuffer = useCallback(async (arrayBuffer: ArrayBuffer, ctx?: AudioContext) => {
+    const audioCtx = ctx || ctxRef.current;
+    if (!audioCtx) return;
+
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    bufferRef.current = audioBuffer;
+
+    // Create reversed buffer
+    const reversed = audioCtx.createBuffer(
+      audioBuffer.numberOfChannels,
+      audioBuffer.length,
+      audioBuffer.sampleRate
+    );
+    for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+      const src = audioBuffer.getChannelData(ch);
+      const dst = reversed.getChannelData(ch);
+      for (let i = 0; i < src.length; i++) {
+        dst[i] = src[src.length - 1 - i];
+      }
+    }
+    reversedBufferRef.current = reversed;
+
+    // Extract waveform data
+    const channelData = audioBuffer.getChannelData(0);
+    const waveform = new Float32Array(800);
+    const step = Math.floor(channelData.length / 800);
+    for (let i = 0; i < 800; i++) {
+      let sum = 0;
+      for (let j = 0; j < step; j++) {
+        sum += Math.abs(channelData[i * step + j] || 0);
+      }
+      waveform[i] = sum / step;
+    }
+
+    setState(s => ({ ...s, isLoaded: true, waveformData: Array.from(waveform) }));
+  }, []);
+
+  const loadUserSample = useCallback(async (file: File) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      await loadSampleFromArrayBuffer(arrayBuffer);
+    } catch (err) {
+      setState(s => ({ ...s, error: (err as Error).message }));
+    }
+  }, [loadSampleFromArrayBuffer]);
 
   // Queue a slice for quantized playback
   const triggerSlice = useCallback((sliceIndex: number) => {
@@ -418,5 +443,6 @@ export function useAudioEngine() {
     setTimeMultiplier,
     setShiftHeld,
     setSpaceHeld,
+    loadUserSample,
   };
 }
