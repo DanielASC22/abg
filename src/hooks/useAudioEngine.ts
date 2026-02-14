@@ -97,6 +97,7 @@ export function useAudioEngine() {
   const sequenceRef = useRef<SequenceStep[]>([]);
   const sequenceStepRef = useRef(0);
   const isSequenceModeRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const [state, setState] = useState<AudioEngineState>({
     isLoaded: false,
@@ -121,6 +122,10 @@ export function useAudioEngine() {
     isShiftHeld: false,
     isSpaceHeld: false,
   });
+
+  const safeSetState = useCallback((updater: (s: AudioEngineState) => AudioEngineState) => {
+    if (mountedRef.current) setState(updater);
+  }, []);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -188,11 +193,11 @@ export function useAudioEngine() {
     currentGainRef.current = voiceGain;
     lastPlayedSliceRef.current = sliceIndex;
 
-    setState(s => ({ ...s, activeSlice: sliceIndex }));
+    safeSetState(s => ({ ...s, activeSlice: sliceIndex }));
 
     const adjustedDuration = (playDuration / (effectiveBpm / originalBpm)) * 1000;
     setTimeout(() => {
-      setState(s => s.activeSlice === sliceIndex ? { ...s, activeSlice: null } : s);
+      safeSetState(s => s.activeSlice === sliceIndex ? { ...s, activeSlice: null } : s);
     }, adjustedDuration);
   }, []);
 
@@ -216,14 +221,14 @@ export function useAudioEngine() {
         const val = seq[step];
 
         // Update position for visual tracking
-        setState(s => ({ ...s, sequencePosition: step }));
+        safeSetState(s => ({ ...s, sequencePosition: step }));
 
         if (val === null) {
           // Rest — silence, stop current source
           if (currentSourceRef.current) {
             try { currentSourceRef.current.stop(); } catch {}
           }
-          setState(s => ({ ...s, activeSlice: null }));
+          safeSetState(s => ({ ...s, activeSlice: null }));
         } else if (val === -1) {
           // Hold — do nothing, let previous slice continue
         } else {
@@ -275,7 +280,7 @@ export function useAudioEngine() {
       schedulerRef.current = window.setTimeout(tick, SCHEDULE_INTERVAL);
     };
     tick();
-    setState(s => ({ ...s, isPlaying: true }));
+    safeSetState(s => ({ ...s, isPlaying: true }));
   }, [schedulerTick]);
 
   const stopScheduler = useCallback(() => {
@@ -288,7 +293,7 @@ export function useAudioEngine() {
     }
     isSequenceModeRef.current = false;
     sequenceStepRef.current = 0;
-    setState(s => ({ ...s, isPlaying: false, isAutoMode: false, isSequenceMode: false, sequencePosition: 0, activeSlice: null }));
+    safeSetState(s => ({ ...s, isPlaying: false, isAutoMode: false, isSequenceMode: false, sequencePosition: 0, activeSlice: null }));
   }, []);
 
   const initAudio = useCallback(async () => {
@@ -507,7 +512,9 @@ export function useAudioEngine() {
   }, [stopScheduler]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (schedulerRef.current) clearTimeout(schedulerRef.current);
       ctxRef.current?.close();
     };
