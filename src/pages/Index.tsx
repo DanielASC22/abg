@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useAudioEngine } from '@/hooks/useAudioEngine';
 import { useHandTracking } from '@/hooks/useHandTracking';
 import { AudioUnlockOverlay } from '@/components/AudioUnlockOverlay';
@@ -10,6 +10,7 @@ import { CameraOverlay } from '@/components/CameraOverlay';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'sampler' | 'camera'>('sampler');
+  const [sampleName, setSampleName] = useState('Amen Break');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const {
     state,
@@ -28,7 +29,19 @@ const Index = () => {
     setTimeMultiplier,
     setShiftHeld,
     setSpaceHeld,
+    loadUserSample,
   } = useAudioEngine();
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      loadUserSample(file);
+      setSampleName(file.name.replace(/\.[^.]+$/, ''));
+    }
+    e.target.value = '';
+  }, [loadUserSample]);
 
   // Gesture trigger uses the same quantized triggerSlice path
   const handleGestureTrigger = useCallback((sliceIndex: number) => {
@@ -72,7 +85,23 @@ const Index = () => {
             Break Generator
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="surface-raised px-3 py-1.5 rounded text-[10px] font-display uppercase tracking-wider text-muted-foreground hover:text-foreground hover:brightness-125 transition-all"
+          >
+            ↑ Load Sample
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+          <span className="text-[9px] text-muted-foreground/60 font-mono max-w-[120px] truncate">
+            {sampleName}
+          </span>
           <div className={`w-2 h-2 rounded-full ${state.isLoaded ? 'bg-[hsl(var(--led-green))] led-glow-green' : 'bg-[hsl(var(--led-red))] animate-pulse'}`} />
           <span className="text-[10px] text-muted-foreground font-mono">
             {state.isLoaded ? 'READY' : 'LOADING'}
@@ -81,34 +110,40 @@ const Index = () => {
       </header>
 
       {/* Tab Navigation */}
-      <div className="flex gap-0 mb-4 md:mb-6">
+      <div className="flex gap-0 border-b border-border mb-4 md:mb-6">
         <button
           onClick={() => setActiveTab('sampler')}
           className={`
-            px-5 py-2 rounded-t-lg font-display text-xs uppercase tracking-widest
-            transition-all duration-150 border border-b-0
+            px-5 py-2.5 font-display text-xs uppercase tracking-widest
+            transition-all duration-150 relative
             ${activeTab === 'sampler'
-              ? 'bg-card text-foreground border-border'
-              : 'bg-transparent text-muted-foreground hover:text-foreground border-transparent'
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground'
             }
           `}
         >
           Sampler
+          {activeTab === 'sampler' && (
+            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary led-glow" />
+          )}
         </button>
         <button
           onClick={() => setActiveTab('camera')}
           className={`
-            px-5 py-2 rounded-t-lg font-display text-xs uppercase tracking-widest
-            transition-all duration-150 border border-b-0 flex items-center gap-2
+            px-5 py-2.5 font-display text-xs uppercase tracking-widest
+            transition-all duration-150 relative flex items-center gap-2
             ${activeTab === 'camera'
-              ? 'bg-card text-foreground border-border'
-              : 'bg-transparent text-muted-foreground hover:text-foreground border-transparent'
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground'
             }
           `}
         >
           <span>Camera</span>
           {handState.isCameraMode && (
             <div className="w-1.5 h-1.5 rounded-full bg-[hsl(var(--led-green))] led-glow-green" />
+          )}
+          {activeTab === 'camera' && (
+            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary led-glow" />
           )}
         </button>
       </div>
