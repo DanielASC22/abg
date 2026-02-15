@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 
 const NUM_SLICES = 16;
-const AMEN_URL = '/audio/amen-break.mp3';
+const AMEN_URL = `${import.meta.env.BASE_URL}audio/amen-break.mp3`;
 const LOOK_AHEAD = 0.05; // 50ms lookahead
 const SCHEDULE_INTERVAL = 25; // ms
 
