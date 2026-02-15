@@ -3,7 +3,7 @@ import { FilesetResolver, HandLandmarker, type NormalizedLandmark } from '@media
 
 const THUMB_TIP = 4;
 const FINGER_TIPS = [8, 12, 16, 20]; // Index, Middle, Ring, Pinky
-const DEFAULT_PINCH_THRESHOLD = 0.06;
+const DEFAULT_PINCH_THRESHOLD = 0.045;
 
 export interface HandTrackingState {
   isCameraMode: boolean;
@@ -44,14 +44,25 @@ export function useHandTracking(onGestureTrigger: (sliceIndex: number) => void) 
       const vision = await FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
       );
-      const handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU',
-        },
-        runningMode: 'VIDEO',
-        numHands: 2,
-      });
+
+      const createLandmarker = async (delegate: 'GPU' | 'CPU') =>
+        HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+            delegate,
+          },
+          runningMode: 'VIDEO',
+          numHands: 2,
+        });
+
+      let handLandmarker: HandLandmarker;
+      try {
+        handLandmarker = await createLandmarker('GPU');
+      } catch {
+        console.warn('GPU delegate failed, falling back to CPU');
+        handLandmarker = await createLandmarker('CPU');
+      }
+
       handLandmarkerRef.current = handLandmarker;
       videoRef.current = video;
       setState(s => ({ ...s, isInitialized: true, isLoading: false }));
