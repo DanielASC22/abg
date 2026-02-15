@@ -12,6 +12,7 @@ interface PadGridProps {
 
 const KEY_MAP: Record<string, number> = {
   '1': 0, '2': 1, '3': 2, '4': 3,
+  '!': 0, '@': 1, '#': 2, '$': 3, // Shift+1-4
   'q': 4, 'w': 5, 'e': 6, 'r': 7,
   'a': 8, 's': 9, 'd': 10, 'f': 11,
   'z': 12, 'x': 13, 'c': 14, 'v': 15,
