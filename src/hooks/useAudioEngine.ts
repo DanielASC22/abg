@@ -110,7 +110,7 @@ export function useAudioEngine() {
     activeSlice: null,
     bpm: 140,
     chaos: 0,
-    filterFreq: 20000,
+    filterFreq: 20,
     filterQ: 1,
     filterType: 'highpass',
     bitcrushMix: 0,
