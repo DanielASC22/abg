@@ -1,41 +1,45 @@
 
 
-## Add WAV Export for Sequences
+## Add Reverse Notation to Sequences
 
 ### What it does
-Adds an "Export WAV" button to the Sequence Editor that renders the current sequence (with all active effects -- filter, bitcrusher, delay) to a downloadable `.wav` file. Everything runs client-side using the Web Audio API, so no server or paid service is needed.
+Lets users mark any slice(s) in a sequence as reversed by wrapping them in square brackets. For example:
+- `[1]` -- plays slice 1 in reverse
+- `[1wer]` -- plays slices 1, w, e, r all in reverse
+- `1234 [qwer] asdf` -- only the middle group is reversed
 
 ### How it works
-1. An `OfflineAudioContext` replays each step of the sequence through the same DSP chain (filter, bitcrusher, limiter, delay) at the current BPM and time settings.
-2. The resulting audio buffer is encoded as a 16-bit PCM WAV file using a small built-in utility function.
-3. The browser downloads the file automatically.
+Instead of parsing the sequence as a flat character list, a pre-processing step scans for `[...]` blocks and tags each step with a `reverse` flag. The rest of the pipeline (playback and WAV export) already supports reverse -- it just needs to receive that flag per step.
 
 ### Technical Details
 
-**1. New utility: `src/lib/wavEncoder.ts`**
-- A pure function `encodeWAV(buffer: AudioBuffer): Blob` that converts an `AudioBuffer` to a 16-bit PCM WAV `Blob`.
-- ~30 lines, no dependencies.
+**1. Update sequence step type (`src/hooks/useAudioEngine.ts`)**
+- Change `SequenceStep` from `number | null` to `{ slice: number; reverse: boolean } | null` (where `null` = rest, `-1` slice = hold).
+- Add a `parseSequence(input: string)` helper that:
+  - Tracks an `inBracket` boolean as it scans characters.
+  - When it encounters `[`, sets `inBracket = true`; on `]`, sets it back to `false`.
+  - For each valid character, produces `{ slice, reverse: inBracket }`.
+  - Rests (`. `) and holds (`-`) pass through unchanged.
 
-**2. New export function in `src/hooks/useAudioEngine.ts`**
-- Add an `exportSequenceWAV(input: string): Promise<Blob>` function that:
-  - Parses the sequence string into steps (reuses existing `CHAR_TO_SLICE` mapping).
-  - Calculates total duration from step count, BPM, time multiplier, and quantize mode.
-  - Creates an `OfflineAudioContext` with matching sample rate and duration.
-  - Rebuilds the DSP chain (filter, bitcrusher, limiter, delay) using current state values inside the offline context.
-  - Schedules each slice at the correct time (same logic as `playSliceAtTime` but targeting the offline context).
-  - Calls `offlineCtx.startRendering()` to get the rendered `AudioBuffer`.
-  - Returns the WAV blob via `encodeWAV()`.
-- Expose `exportSequenceWAV` from the hook's return object.
+**2. Update `playSequence` scheduling (`src/hooks/useAudioEngine.ts`)**
+- In the scheduler tick where sequence steps are consumed, pass the step's `reverse` flag to the existing `playSliceAtTime(slice, time, reverse, stutter)` call (currently hardcoded to `false` for sequences).
 
-**3. UI update: `src/components/SequenceEditor.tsx`**
-- Accept a new prop `onExportWAV: (input: string) => Promise<Blob>`.
-- Add an "Export WAV" button next to the Play/Stop button (disabled while playing or if sequence is empty).
-- On click, calls `onExportWAV(input)`, creates a download link, and triggers the download.
-- Shows a brief loading state ("Rendering...") while the offline render runs.
+**3. Update `exportSequenceWAV` (`src/hooks/useAudioEngine.ts`)**
+- Use the same `parseSequence()` function.
+- When a step has `reverse: true`, use `reversedBufferRef.current` and mirror the offset (same math as `playSliceAtTime`).
 
-**4. Wire it up in `src/pages/Index.tsx`**
-- Pass the new `exportSequenceWAV` function from the hook to `SequenceEditor` as `onExportWAV`.
+**4. Update valid characters (`src/components/SequenceEditor.tsx`)**
+- Add `[` and `]` to the `VALID_CHARS` set.
+- The visual tracker already renders each character, so brackets will appear naturally in the step display (but won't count as playable steps).
 
-### Cost
-Zero -- this is entirely client-side using built-in browser APIs.
+**5. Update legend (`src/components/SequenceEditor.tsx`)**
+- Add `[...] = reverse` to the legend line.
+
+### Example sequences
+| Input | Behavior |
+|---|---|
+| `1234` | Normal playback |
+| `[1234]` | All four slices reversed |
+| `12[34]` | Slices 1,2 normal; 3,4 reversed |
+| `[1]w[e]r` | Slices 1,e reversed; w,r normal |
 
