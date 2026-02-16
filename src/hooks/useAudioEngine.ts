@@ -8,8 +8,8 @@ const SCHEDULE_INTERVAL = 25; // ms
 
 export type QuantizeMode = '1/16' | '1/8';
 
-// Sequence step: slice index, null = rest, -1 = hold
-export type SequenceStep = number | null;
+// Sequence step: slice index + reverse flag, null = rest, slice -1 = hold
+export type SequenceStep = { slice: number; reverse: boolean } | null;
 
 interface AudioEngineState {
   isLoaded: boolean;
@@ -230,10 +230,10 @@ export function useAudioEngine() {
             try { currentSourceRef.current.stop(); } catch {}
           }
           safeSetState(s => ({ ...s, activeSlice: null }));
-        } else if (val === -1) {
+        } else if (val.slice === -1) {
           // Hold — do nothing, let previous slice continue
         } else {
-          playSliceAtTime(val, nextBeatTimeRef.current, isReverse, false);
+          playSliceAtTime(val.slice, nextBeatTimeRef.current, val.reverse, false);
         }
 
         sequenceStepRef.current = step + 1;
@@ -489,17 +489,27 @@ export function useAudioEngine() {
     'z': 12, 'x': 13, 'c': 14, 'v': 15,
   };
 
+  const parseSequence = (input: string): SequenceStep[] => {
+    const steps: SequenceStep[] = [];
+    let inBracket = false;
+    for (const ch of input.toLowerCase()) {
+      if (ch === '[') { inBracket = true; continue; }
+      if (ch === ']') { inBracket = false; continue; }
+      if (ch === '.' || ch === ' ') { steps.push(null); continue; }
+      if (ch === '-') { steps.push({ slice: -1, reverse: false }); continue; }
+      const slice = CHAR_TO_SLICE[ch];
+      if (slice !== undefined) {
+        steps.push({ slice, reverse: inBracket });
+      }
+    }
+    return steps;
+  };
+
   const playSequence = useCallback((input: string) => {
     if (!bufferRef.current) return;
-    // Stop any current playback
     stopScheduler();
 
-    const steps: SequenceStep[] = input.toLowerCase().split('').map(ch => {
-      if (ch === '.' || ch === ' ') return null; // rest
-      if (ch === '-') return -1; // hold
-      const slice = CHAR_TO_SLICE[ch];
-      return slice !== undefined ? slice : null;
-    });
+    const steps = parseSequence(input);
 
     sequenceRef.current = steps;
     sequenceStepRef.current = 0;
@@ -517,12 +527,7 @@ export function useAudioEngine() {
     if (!buffer) throw new Error('No sample loaded');
 
     // Parse sequence
-    const steps: SequenceStep[] = input.toLowerCase().split('').map(ch => {
-      if (ch === '.' || ch === ' ') return null;
-      if (ch === '-') return -1;
-      const slice = CHAR_TO_SLICE[ch];
-      return slice !== undefined ? slice : null;
-    });
+    const steps = parseSequence(input);
 
     if (steps.length === 0) throw new Error('Empty sequence');
 
@@ -590,7 +595,7 @@ export function useAudioEngine() {
         }
         lastSource = null;
         lastGain = null;
-      } else if (val === -1) {
+      } else if (val.slice === -1) {
         // Hold — let previous continue
       } else {
         // Crossfade previous
@@ -599,8 +604,11 @@ export function useAudioEngine() {
           lastGain.gain.linearRampToValueAtTime(0, time + FADE_TIME);
         }
 
+        const useReverse = val.reverse;
+        const sourceBuffer = useReverse ? reversedBufferRef.current! : buffer;
+
         const source = offCtx.createBufferSource();
-        source.buffer = buffer;
+        source.buffer = sourceBuffer;
         source.playbackRate.value = rate;
 
         const voiceGain = offCtx.createGain();
@@ -610,7 +618,9 @@ export function useAudioEngine() {
         source.connect(voiceGain);
         voiceGain.connect(filter);
 
-        const offset = val * sliceDuration;
+        const offset = useReverse
+          ? (NUM_SLICES - 1 - val.slice) * sliceDuration
+          : val.slice * sliceDuration;
         source.start(time, offset, sliceDuration + FADE_TIME * 2);
 
         lastSource = source;
