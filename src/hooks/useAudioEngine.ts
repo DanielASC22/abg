@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { encodeWAV } from '@/lib/wavEncoder';
 
 const NUM_SLICES = 16;
 const AMEN_URL = `${import.meta.env.BASE_URL}audio/amen-break.mp3`;
@@ -511,6 +512,116 @@ export function useAudioEngine() {
     stopScheduler();
   }, [stopScheduler]);
 
+  const exportSequenceWAV = useCallback(async (input: string): Promise<Blob> => {
+    const buffer = bufferRef.current;
+    if (!buffer) throw new Error('No sample loaded');
+
+    // Parse sequence
+    const steps: SequenceStep[] = input.toLowerCase().split('').map(ch => {
+      if (ch === '.' || ch === ' ') return null;
+      if (ch === '-') return -1;
+      const slice = CHAR_TO_SLICE[ch];
+      return slice !== undefined ? slice : null;
+    });
+
+    if (steps.length === 0) throw new Error('Empty sequence');
+
+    const { bpm, timeMultiplier, quantize, filterFreq, filterQ, filterType, bitcrushMix, delayTime, delayFeedback } = stateRef.current;
+    const originalBpm = 140;
+    const effectiveBpm = bpm * timeMultiplier;
+    const rate = effectiveBpm / originalBpm;
+    const sliceDuration = buffer.duration / NUM_SLICES;
+    const baseDuration = sliceDuration / rate;
+    const stepDuration = quantize === '1/8' ? baseDuration * 2 : baseDuration;
+
+    // Add tail for delay
+    const tailTime = delayFeedback > 0 ? delayTime * 4 : 0.1;
+    const totalDuration = steps.length * stepDuration + tailTime;
+
+    const offCtx = new OfflineAudioContext(buffer.numberOfChannels, Math.ceil(totalDuration * buffer.sampleRate), buffer.sampleRate);
+
+    // Rebuild DSP chain in offline context
+    const filter = offCtx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.value = filterFreq;
+    filter.Q.value = filterQ;
+
+    const crusher = createBitcrusher(offCtx as unknown as AudioContext);
+    crusher.setMix(bitcrushMix);
+
+    const limiter = offCtx.createDynamicsCompressor();
+    limiter.threshold.value = -1;
+    limiter.knee.value = 6;
+    limiter.ratio.value = 4;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.1;
+
+    const delayNode = offCtx.createDelay(2);
+    delayNode.delayTime.value = delayTime;
+    const feedbackGain = offCtx.createGain();
+    feedbackGain.gain.value = delayFeedback;
+    const dryGain = offCtx.createGain();
+    dryGain.gain.value = 1;
+    const wetGain = offCtx.createGain();
+    wetGain.gain.value = delayFeedback;
+
+    // Chain: filter -> crusher -> limiter -> dry + delay
+    filter.connect(crusher.input);
+    crusher.output.connect(limiter);
+    limiter.connect(dryGain);
+    dryGain.connect(offCtx.destination);
+    limiter.connect(delayNode);
+    delayNode.connect(feedbackGain);
+    feedbackGain.connect(delayNode);
+    delayNode.connect(wetGain);
+    wetGain.connect(offCtx.destination);
+
+    const FADE_TIME = 0.005;
+    let lastSource: AudioBufferSourceNode | null = null;
+    let lastGain: GainNode | null = null;
+
+    steps.forEach((val, i) => {
+      const time = i * stepDuration;
+      if (val === null) {
+        // Rest - fade out previous
+        if (lastGain) {
+          lastGain.gain.setValueAtTime(lastGain.gain.value, time);
+          lastGain.gain.linearRampToValueAtTime(0, time + FADE_TIME);
+        }
+        lastSource = null;
+        lastGain = null;
+      } else if (val === -1) {
+        // Hold — let previous continue
+      } else {
+        // Crossfade previous
+        if (lastGain) {
+          lastGain.gain.setValueAtTime(1, time);
+          lastGain.gain.linearRampToValueAtTime(0, time + FADE_TIME);
+        }
+
+        const source = offCtx.createBufferSource();
+        source.buffer = buffer;
+        source.playbackRate.value = rate;
+
+        const voiceGain = offCtx.createGain();
+        voiceGain.gain.setValueAtTime(0, time);
+        voiceGain.gain.linearRampToValueAtTime(1, time + FADE_TIME);
+
+        source.connect(voiceGain);
+        voiceGain.connect(filter);
+
+        const offset = val * sliceDuration;
+        source.start(time, offset, sliceDuration + FADE_TIME * 2);
+
+        lastSource = source;
+        lastGain = voiceGain;
+      }
+    });
+
+    const rendered = await offCtx.startRendering();
+    return encodeWAV(rendered);
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -540,5 +651,6 @@ export function useAudioEngine() {
     loadUserSample,
     playSequence,
     stopSequence,
+    exportSequenceWAV,
   };
 }
