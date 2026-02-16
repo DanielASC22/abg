@@ -11,7 +11,7 @@ interface SequenceEditorProps {
   onExportWAV: (input: string) => Promise<Blob>;
 }
 
-const VALID_CHARS = new Set('1234qwerasdfzxcvQWERASDFZXCV .-');
+const VALID_CHARS = new Set('1234qwerasdfzxcvQWERASDFZXCV .-[]');
 
 export function SequenceEditor({
   isPlaying,
@@ -89,10 +89,11 @@ export function SequenceEditor({
       </h3>
 
       {/* Legend */}
-      <div className="flex gap-3 text-[9px] font-mono text-muted-foreground/60">
+      <div className="flex gap-3 flex-wrap text-[9px] font-mono text-muted-foreground/60">
         <span>1-4 Q-R A-F Z-V = slices</span>
         <span>. = rest</span>
         <span>- = hold</span>
+        <span>[...] = reverse</span>
       </div>
 
       {/* Input */}
