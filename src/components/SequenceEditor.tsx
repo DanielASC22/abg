@@ -8,6 +8,7 @@ interface SequenceEditorProps {
   isLoaded: boolean;
   onPlaySequence: (sequence: string) => void;
   onStopSequence: () => void;
+  onExportWAV: (input: string) => Promise<Blob>;
 }
 
 const VALID_CHARS = new Set('1234qwerasdfzxcvQWERASDFZXCV .-');
@@ -20,8 +21,10 @@ export function SequenceEditor({
   isLoaded,
   onPlaySequence,
   onStopSequence,
+  onExportWAV,
 }: SequenceEditorProps) {
   const [input, setInput] = useState('1234 qwer asdf zxcv');
+  const [isExporting, setIsExporting] = useState(false);
   const displayRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to keep cursor visible
@@ -44,15 +47,31 @@ export function SequenceEditor({
     }
   }, [isLoaded, isSequenceMode, input, onPlaySequence, onStopSequence]);
 
+  const handleExport = useCallback(async () => {
+    if (!isLoaded || isExporting || input.trim().length === 0) return;
+    setIsExporting(true);
+    try {
+      const blob = await onExportWAV(input);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sequence-${Date.now()}.wav`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isLoaded, isExporting, input, onExportWAV]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Only allow valid characters
     const raw = e.target.value;
     const filtered = raw.split('').filter(c => VALID_CHARS.has(c)).join('');
     setInput(filtered);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Prevent space from triggering stutter when typing in input
     if (e.key === ' ') {
       e.stopPropagation();
     }
@@ -118,22 +137,34 @@ export function SequenceEditor({
         </div>
       )}
 
-      {/* Play/Stop */}
-      <button
-        onClick={handlePlay}
-        disabled={!isLoaded || input.trim().length === 0}
-        className={`
-          w-full py-2.5 rounded-md font-display text-xs uppercase tracking-widest
-          transition-all duration-150
-          ${isSequenceMode
-            ? 'bg-[hsl(var(--led-red))] text-primary-foreground'
-            : 'surface-raised text-muted-foreground hover:text-foreground hover:brightness-125'
-          }
-          disabled:opacity-40 disabled:cursor-not-allowed
-        `}
-      >
-        {isSequenceMode ? '■ Stop Sequence' : '▶ Play Sequence'}
-      </button>
+      {/* Play/Stop + Export */}
+      <div className="flex gap-2">
+        <button
+          onClick={handlePlay}
+          disabled={!isLoaded || input.trim().length === 0}
+          className={`
+            flex-1 py-2.5 rounded-md font-display text-xs uppercase tracking-widest
+            transition-all duration-150
+            ${isSequenceMode
+              ? 'bg-[hsl(var(--led-red))] text-primary-foreground'
+              : 'surface-raised text-muted-foreground hover:text-foreground hover:brightness-125'
+            }
+            disabled:opacity-40 disabled:cursor-not-allowed
+          `}
+        >
+          {isSequenceMode ? '■ Stop' : '▶ Play'}
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={!isLoaded || isExporting || isSequenceMode || input.trim().length === 0}
+          className="surface-raised px-4 py-2.5 rounded-md font-display text-xs uppercase tracking-widest
+            text-muted-foreground hover:text-foreground hover:brightness-125
+            transition-all duration-150
+            disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isExporting ? '⏳ Rendering…' : '↓ WAV'}
+        </button>
+      </div>
 
       {/* Position display */}
       {isSequenceMode && (

@@ -33,6 +33,7 @@ const Index = () => {
     loadUserSample,
     playSequence,
     stopSequence,
+    exportSequenceWAV,
   } = useAudioEngine();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -258,6 +259,7 @@ const Index = () => {
                   isLoaded={state.isLoaded}
                   onPlaySequence={playSequence}
                   onStopSequence={stopSequence}
+                  onExportWAV={exportSequenceWAV}
                 />
 
                 <div className="flex items-center gap-2">
