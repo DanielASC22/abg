@@ -1,16 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
-interface SampleCalculatorProps {
-  currentBpm: number;
-}
-
-export const SampleCalculator = ({ currentBpm }: SampleCalculatorProps) => {
+export const SampleCalculator = () => {
   const [bars, setBars] = useState(4);
-  const [bpm, setBpm] = useState(currentBpm);
-
-  useEffect(() => {
-    setBpm(currentBpm);
-  }, [currentBpm]);
+  const [bpm, setBpm] = useState(120);
 
   const duration = useMemo(() => {
     const secs = (bars * 4 * 60) / bpm;
@@ -35,10 +27,9 @@ export const SampleCalculator = ({ currentBpm }: SampleCalculatorProps) => {
         <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">Bars</label>
         <input
           type="number"
-          min={1}
-          max={64}
+          min={0}
           value={bars}
-          onChange={(e) => setBars(Math.max(1, Math.min(64, Number(e.target.value) || 1)))}
+          onChange={(e) => setBars(Number(e.target.value) || 0)}
           className="w-14 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         />
       </div>
@@ -47,10 +38,9 @@ export const SampleCalculator = ({ currentBpm }: SampleCalculatorProps) => {
         <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">BPM</label>
         <input
           type="number"
-          min={20}
-          max={300}
+          min={0}
           value={bpm}
-          onChange={(e) => setBpm(Math.max(20, Math.min(300, Number(e.target.value) || 20)))}
+          onChange={(e) => setBpm(Number(e.target.value) || 0)}
           className="w-16 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         />
       </div>
