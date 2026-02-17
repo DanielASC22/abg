@@ -1,45 +1,34 @@
 
 
-## Add Reverse Notation to Sequences
+## Add a Sample Length Calculator
 
 ### What it does
-Lets users mark any slice(s) in a sequence as reversed by wrapping them in square brackets. For example:
-- `[1]` -- plays slice 1 in reverse
-- `[1wer]` -- plays slices 1, w, e, r all in reverse
-- `1234 [qwer] asdf` -- only the middle group is reversed
+Adds a small calculator panel to the Sampler tab where users can input the number of bars and BPM to instantly see the exact sample duration (in seconds and milliseconds) they should trim their audio to for perfect looping.
 
-### How it works
-Instead of parsing the sequence as a flat character list, a pre-processing step scans for `[...]` blocks and tags each step with a `reverse` flag. The rest of the pipeline (playback and WAV export) already supports reverse -- it just needs to receive that flag per step.
+### Formula
+```
+duration = (bars * beatsPerBar * 60) / BPM
+```
+Using 4/4 time signature (4 beats per bar), so: `duration = (bars * 4 * 60) / BPM`
+
+### Example outputs
+| Bars | BPM | Duration |
+|------|-----|----------|
+| 1 | 120 | 2.000s |
+| 2 | 170 | 2.824s |
+| 4 | 140 | 6.857s |
 
 ### Technical Details
 
-**1. Update sequence step type (`src/hooks/useAudioEngine.ts`)**
-- Change `SequenceStep` from `number | null` to `{ slice: number; reverse: boolean } | null` (where `null` = rest, `-1` slice = hold).
-- Add a `parseSequence(input: string)` helper that:
-  - Tracks an `inBracket` boolean as it scans characters.
-  - When it encounters `[`, sets `inBracket = true`; on `]`, sets it back to `false`.
-  - For each valid character, produces `{ slice, reverse: inBracket }`.
-  - Rests (`. `) and holds (`-`) pass through unchanged.
+**1. New component: `src/components/SampleCalculator.tsx`**
+- Two number inputs: Bars (1-64, default 4) and BPM (20-300, default from engine state).
+- Displays computed duration in seconds (3 decimal places) and also as `minutes:seconds.ms`.
+- Styled to match the existing hardware aesthetic (font-display labels, font-mono values, surface-raised styling).
+- Compact layout -- a single row with inputs and result.
 
-**2. Update `playSequence` scheduling (`src/hooks/useAudioEngine.ts`)**
-- In the scheduler tick where sequence steps are consumed, pass the step's `reverse` flag to the existing `playSliceAtTime(slice, time, reverse, stutter)` call (currently hardcoded to `false` for sequences).
+**2. Wire into `src/pages/Index.tsx`**
+- Place the calculator below the waveform display in the Sampler tab, above the trigger pads section.
+- Pass the current `state.bpm` as the default BPM value so it stays in sync.
 
-**3. Update `exportSequenceWAV` (`src/hooks/useAudioEngine.ts`)**
-- Use the same `parseSequence()` function.
-- When a step has `reverse: true`, use `reversedBufferRef.current` and mirror the offset (same math as `playSliceAtTime`).
-
-**4. Update valid characters (`src/components/SequenceEditor.tsx`)**
-- Add `[` and `]` to the `VALID_CHARS` set.
-- The visual tracker already renders each character, so brackets will appear naturally in the step display (but won't count as playable steps).
-
-**5. Update legend (`src/components/SequenceEditor.tsx`)**
-- Add `[...] = reverse` to the legend line.
-
-### Example sequences
-| Input | Behavior |
-|---|---|
-| `1234` | Normal playback |
-| `[1234]` | All four slices reversed |
-| `12[34]` | Slices 1,2 normal; 3,4 reversed |
-| `[1]w[e]r` | Slices 1,e reversed; w,r normal |
+No changes to the audio engine or any other existing components.
 
