@@ -8,6 +8,7 @@ import { TransportControls } from '@/components/TransportControls';
 import { EffectsRack } from '@/components/EffectsRack';
 import { CameraOverlay } from '@/components/CameraOverlay';
 import { SequenceEditor } from '@/components/SequenceEditor';
+import { SampleCalculator } from '@/components/SampleCalculator';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'sampler' | 'sequence' | 'camera'>('sampler');
@@ -184,6 +185,10 @@ const Index = () => {
                 waveformData={state.waveformData}
                 activeSlice={state.activeSlice}
               />
+            </div>
+
+            <div className="mb-4 md:mb-6">
+              <SampleCalculator currentBpm={state.bpm} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 md:gap-6">
