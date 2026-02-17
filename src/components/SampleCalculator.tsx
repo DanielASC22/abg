@@ -23,7 +23,7 @@ export const SampleCalculator = ({ currentBpm }: SampleCalculatorProps) => {
   }, [bars, bpm]);
 
   return (
-    <div className="surface-raised rounded-lg px-4 py-3 flex flex-wrap items-center gap-4">
+    <div className="surface-raised rounded-lg px-4 py-3 flex flex-wrap items-center gap-4 [&_input]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]">
       <div className="flex items-center gap-2">
         <div className="w-1.5 h-1.5 rounded-full bg-primary" />
         <span className="font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
