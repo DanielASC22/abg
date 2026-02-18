@@ -9,9 +9,10 @@ import { EffectsRack } from '@/components/EffectsRack';
 import { CameraOverlay } from '@/components/CameraOverlay';
 import { SequenceEditor } from '@/components/SequenceEditor';
 import { SampleCalculator } from '@/components/SampleCalculator';
+import { AudioTrimmer } from '@/components/AudioTrimmer';
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'sampler' | 'sequence' | 'camera'>('sampler');
+  const [activeTab, setActiveTab] = useState<'sampler' | 'sequence' | 'camera' | 'trimmer'>('sampler');
   const [sampleName, setSampleName] = useState('Amen Break');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const {
@@ -170,6 +171,22 @@ const Index = () => {
             <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary led-glow" />
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('trimmer')}
+          className={`
+            px-5 py-2.5 font-display text-xs uppercase tracking-widest
+            transition-all duration-150 relative
+            ${activeTab === 'trimmer'
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground'
+            }
+          `}
+        >
+          Trimmer
+          {activeTab === 'trimmer' && (
+            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary led-glow" />
+          )}
+        </button>
       </div>
 
       <div className="hardware-panel rounded-xl p-4 md:p-6 relative">
@@ -319,7 +336,7 @@ const Index = () => {
               </div>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'camera' ? (
           <>
             <div className="mb-4 md:mb-6">
               <WaveformDisplay
@@ -392,6 +409,8 @@ const Index = () => {
               </div>
             </div>
           </>
+        ) : (
+          <AudioTrimmer />
         )}
       </div>
 
