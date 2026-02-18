@@ -10,11 +10,16 @@ export function AudioTrimmer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [waveformData, setWaveformData] = useState<number[] | null>(null);
   const [dragging, setDragging] = useState<'start' | 'end' | null>(null);
+  const [focusedInput, setFocusedInput] = useState<'start' | 'end' | null>(null);
+  const [tapTimes, setTapTimes] = useState<number[]>([]);
+  const [tapBpm, setTapBpm] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const wasPlayingRef = useRef(false);
+  const lastChangeRef = useRef<'start' | 'end' | null>(null);
 
   const durationSec = useMemo(() => {
     if (!audioBuffer) return 0;
@@ -30,6 +35,64 @@ export function AudioTrimmer() {
   const trimDurationSec = useMemo(() => {
     return Math.max(0, endSec - startSec);
   }, [startSec, endSec]);
+
+  // Stop current playback
+  const stopPlayback = useCallback(() => {
+    if (sourceRef.current) {
+      try { sourceRef.current.stop(); } catch {}
+      sourceRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  // Start playback from a given offset
+  const startPlaybackFrom = useCallback((offset: number, duration: number) => {
+    if (!audioBuffer || !audioCtxRef.current) return;
+    stopPlayback();
+
+    const ctx = audioCtxRef.current;
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.start(0, offset, duration);
+    sourceRef.current = source;
+    setIsPlaying(true);
+
+    source.onended = () => {
+      setIsPlaying(false);
+      sourceRef.current = null;
+    };
+  }, [audioBuffer, stopPlayback]);
+
+  // Auto-restart playback when trim points change
+  const updateStart = useCallback((val: number) => {
+    setStartSec(val);
+    lastChangeRef.current = 'start';
+  }, []);
+
+  const updateEnd = useCallback((val: number) => {
+    setEndSec(val);
+    lastChangeRef.current = 'end';
+  }, []);
+
+  // React to trim changes while playing
+  useEffect(() => {
+    if (!isPlaying || !audioBuffer || lastChangeRef.current === null) return;
+    const change = lastChangeRef.current;
+    lastChangeRef.current = null;
+
+    const dur = Math.max(0, endSec - startSec);
+    if (dur <= 0) { stopPlayback(); return; }
+
+    if (change === 'start') {
+      // Restart from beginning of selection
+      startPlaybackFrom(startSec, dur);
+    } else {
+      // Play from ~2 seconds before the new end
+      const previewStart = Math.max(startSec, endSec - 2);
+      startPlaybackFrom(previewStart, endSec - previewStart);
+    }
+  }, [startSec, endSec]); // intentionally minimal deps to fire on value change
 
   const handleFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,6 +124,38 @@ export function AudioTrimmer() {
     e.target.value = '';
   }, []);
 
+  // Arrow key adjustments
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, which: 'start' | 'end') => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const step = e.shiftKey ? 0.1 : 0.01; // shift = bigger step
+    const delta = e.key === 'ArrowRight' ? step : -step;
+
+    if (which === 'start') {
+      updateStart(Math.max(0, Math.min(parseFloat((startSec + delta).toFixed(3)), endSec)));
+    } else {
+      updateEnd(Math.max(startSec, Math.min(parseFloat((endSec + delta).toFixed(3)), durationSec)));
+    }
+  }, [startSec, endSec, durationSec, updateStart, updateEnd]);
+
+  // Tap tempo
+  const handleTap = useCallback(() => {
+    const now = performance.now();
+    setTapTimes(prev => {
+      const recent = prev.filter(t => now - t < 3000); // keep last 3 seconds
+      const next = [...recent, now];
+      if (next.length >= 2) {
+        const intervals: number[] = [];
+        for (let i = 1; i < next.length; i++) {
+          intervals.push(next[i] - next[i - 1]);
+        }
+        const avgMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        setTapBpm(Math.round((60000 / avgMs) * 10) / 10);
+      }
+      return next;
+    });
+  }, []);
+
   // Drag logic
   const getSecFromMouseEvent = useCallback((e: MouseEvent | React.MouseEvent) => {
     const canvas = canvasRef.current;
@@ -80,14 +175,16 @@ export function AudioTrimmer() {
 
     const startX = (startSec / durationSec) * w;
     const endX = (endSec / durationSec) * w;
-    const threshold = 10; // px
+    const threshold = 10;
 
     if (Math.abs(x - startX) < threshold) {
       setDragging('start');
+      wasPlayingRef.current = isPlaying;
     } else if (Math.abs(x - endX) < threshold) {
       setDragging('end');
+      wasPlayingRef.current = isPlaying;
     }
-  }, [durationSec, startSec, endSec]);
+  }, [durationSec, startSec, endSec, isPlaying]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -97,9 +194,9 @@ export function AudioTrimmer() {
       if (sec === null) return;
       const rounded = Math.round(sec * 1000) / 1000;
       if (dragging === 'start') {
-        setStartSec(Math.min(rounded, endSec));
+        updateStart(Math.min(rounded, endSec));
       } else {
-        setEndSec(Math.max(rounded, startSec));
+        updateEnd(Math.max(rounded, startSec));
       }
     };
 
@@ -111,7 +208,7 @@ export function AudioTrimmer() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [dragging, getSecFromMouseEvent, startSec, endSec]);
+  }, [dragging, getSecFromMouseEvent, startSec, endSec, updateStart, updateEnd]);
 
   // Draw waveform
   useEffect(() => {
@@ -199,13 +296,11 @@ export function AudioTrimmer() {
       ctx.lineTo(x, h);
       ctx.stroke();
 
-      // Handle grip
       ctx.fillStyle = 'hsl(24, 100%, 50%)';
       ctx.beginPath();
       ctx.roundRect(x - 5, h / 2 - 14, 10, 28, 3);
       ctx.fill();
 
-      // Grip lines
       ctx.strokeStyle = 'hsl(0, 0%, 8%)';
       ctx.lineWidth = 1;
       for (let dy = -6; dy <= 6; dy += 4) {
@@ -223,25 +318,13 @@ export function AudioTrimmer() {
   const handlePreview = useCallback(() => {
     if (!audioBuffer || !audioCtxRef.current) return;
 
-    if (isPlaying && sourceRef.current) {
-      sourceRef.current.stop();
-      setIsPlaying(false);
+    if (isPlaying) {
+      stopPlayback();
       return;
     }
 
-    const ctx = audioCtxRef.current;
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-    source.start(0, startSec, trimDurationSec);
-    sourceRef.current = source;
-    setIsPlaying(true);
-
-    source.onended = () => {
-      setIsPlaying(false);
-      sourceRef.current = null;
-    };
-  }, [audioBuffer, startSec, trimDurationSec, isPlaying]);
+    startPlaybackFrom(startSec, trimDurationSec);
+  }, [audioBuffer, startSec, trimDurationSec, isPlaying, stopPlayback, startPlaybackFrom]);
 
   const handleDownload = useCallback(() => {
     if (!audioBuffer) return;
@@ -320,18 +403,23 @@ export function AudioTrimmer() {
 
       {audioBuffer && (
         <>
-          {/* Trim controls in seconds */}
+          {/* Trim controls */}
           <div className="flex flex-wrap items-end gap-4 [&_input]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]">
             <div className="flex flex-col gap-1">
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
-                Start (sec)
+                Start (sec) <span className="text-muted-foreground/40">← → adjust</span>
               </label>
               <input
                 type="number"
                 step="0.001"
                 value={parseFloat(startSec.toFixed(3))}
-                onChange={(e) => setStartSec(Number(e.target.value) || 0)}
-                className="w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                onChange={(e) => updateStart(Number(e.target.value) || 0)}
+                onKeyDown={(e) => handleKeyDown(e, 'start')}
+                onFocus={() => setFocusedInput('start')}
+                onBlur={() => setFocusedInput(null)}
+                className={`w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${
+                  focusedInput === 'start' ? 'border-primary' : 'border-border'
+                }`}
               />
               <span className="text-[9px] text-muted-foreground/50 font-mono">
                 {formatTime(startSec)}
@@ -340,14 +428,19 @@ export function AudioTrimmer() {
 
             <div className="flex flex-col gap-1">
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
-                End (sec)
+                End (sec) <span className="text-muted-foreground/40">← → adjust</span>
               </label>
               <input
                 type="number"
                 step="0.001"
                 value={parseFloat(endSec.toFixed(3))}
-                onChange={(e) => setEndSec(Number(e.target.value) || 0)}
-                className="w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                onChange={(e) => updateEnd(Number(e.target.value) || 0)}
+                onKeyDown={(e) => handleKeyDown(e, 'end')}
+                onFocus={() => setFocusedInput('end')}
+                onBlur={() => setFocusedInput(null)}
+                className={`w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${
+                  focusedInput === 'end' ? 'border-primary' : 'border-border'
+                }`}
               />
               <span className="text-[9px] text-muted-foreground/50 font-mono">
                 {formatTime(endSec)}
@@ -401,6 +494,42 @@ export function AudioTrimmer() {
           </div>
         </>
       )}
+
+      {/* Tap Tempo */}
+      <div className="mt-4 surface-raised rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+          <span className="font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+            Tap Tempo
+          </span>
+        </div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleTap}
+            className="surface-raised px-6 py-3 rounded text-sm font-display uppercase tracking-wider text-muted-foreground hover:text-foreground hover:brightness-125 transition-all active:scale-95 select-none"
+          >
+            TAP
+          </button>
+          <div className="flex flex-col gap-0.5">
+            <span className="font-mono text-lg text-primary">
+              {tapBpm !== null ? `${tapBpm} BPM` : '— BPM'}
+            </span>
+            <span className="text-[9px] text-muted-foreground/50 font-mono">
+              {tapBpm !== null
+                ? `${(60 / tapBpm).toFixed(3)}s per beat`
+                : 'Tap repeatedly to detect tempo'}
+            </span>
+          </div>
+          {tapBpm !== null && (
+            <button
+              onClick={() => { setTapTimes([]); setTapBpm(null); }}
+              className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground font-mono ml-auto"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Sample Calculator */}
       <div className="mt-4">
