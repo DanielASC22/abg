@@ -1,34 +1,35 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { encodeWAV } from '@/lib/wavEncoder';
+import { SampleCalculator } from '@/components/SampleCalculator';
 
 export function AudioTrimmer() {
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [fileName, setFileName] = useState('');
-  const [startMs, setStartMs] = useState(0);
-  const [endMs, setEndMs] = useState(0);
+  const [startSec, setStartSec] = useState(0);
+  const [endSec, setEndSec] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [waveformData, setWaveformData] = useState<number[] | null>(null);
+  const [dragging, setDragging] = useState<'start' | 'end' | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
 
-  const durationMs = useMemo(() => {
+  const durationSec = useMemo(() => {
     if (!audioBuffer) return 0;
-    return Math.round(audioBuffer.duration * 1000);
+    return audioBuffer.duration;
   }, [audioBuffer]);
 
-  const formatTime = (ms: number) => {
-    const totalSec = ms / 1000;
-    const min = Math.floor(totalSec / 60);
-    const sec = totalSec % 60;
-    return `${min}:${sec.toFixed(3).padStart(6, '0')}`;
+  const formatTime = (sec: number) => {
+    const min = Math.floor(sec / 60);
+    const remSec = sec % 60;
+    return `${min}:${remSec.toFixed(3).padStart(6, '0')}`;
   };
 
-  const trimDurationMs = useMemo(() => {
-    return Math.max(0, endMs - startMs);
-  }, [startMs, endMs]);
+  const trimDurationSec = useMemo(() => {
+    return Math.max(0, endSec - startSec);
+  }, [startSec, endSec]);
 
   const handleFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -42,10 +43,9 @@ export function AudioTrimmer() {
     const decoded = await audioCtxRef.current.decodeAudioData(arrayBuffer);
     setAudioBuffer(decoded);
     setFileName(file.name);
-    setStartMs(0);
-    setEndMs(Math.round(decoded.duration * 1000));
+    setStartSec(0);
+    setEndSec(decoded.duration);
 
-    // Generate waveform
     const channel = decoded.getChannelData(0);
     const points = 400;
     const blockSize = Math.floor(channel.length / points);
@@ -58,9 +58,60 @@ export function AudioTrimmer() {
       data.push(sum / blockSize);
     }
     setWaveformData(data);
-
     e.target.value = '';
   }, []);
+
+  // Drag logic
+  const getSecFromMouseEvent = useCallback((e: MouseEvent | React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !durationSec) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    return (x / rect.width) * durationSec;
+  }, [durationSec]);
+
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!durationSec) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+
+    const startX = (startSec / durationSec) * w;
+    const endX = (endSec / durationSec) * w;
+    const threshold = 10; // px
+
+    if (Math.abs(x - startX) < threshold) {
+      setDragging('start');
+    } else if (Math.abs(x - endX) < threshold) {
+      setDragging('end');
+    }
+  }, [durationSec, startSec, endSec]);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const sec = getSecFromMouseEvent(e);
+      if (sec === null) return;
+      const rounded = Math.round(sec * 1000) / 1000;
+      if (dragging === 'start') {
+        setStartSec(Math.min(rounded, endSec));
+      } else {
+        setEndSec(Math.max(rounded, startSec));
+      }
+    };
+
+    const handleMouseUp = () => setDragging(null);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragging, getSecFromMouseEvent, startSec, endSec]);
 
   // Draw waveform
   useEffect(() => {
@@ -79,7 +130,6 @@ export function AudioTrimmer() {
     const w = rect.width;
     const h = rect.height;
 
-    // Background
     ctx.fillStyle = 'hsl(0, 0%, 8%)';
     ctx.fillRect(0, 0, w, h);
 
@@ -94,9 +144,8 @@ export function AudioTrimmer() {
     const maxAmp = Math.max(...waveformData) || 1;
     const centerY = h / 2;
 
-    // Trim region highlight
-    const startFrac = startMs / durationMs;
-    const endFrac = endMs / durationMs;
+    const startFrac = startSec / durationSec;
+    const endFrac = endSec / durationSec;
     const startX = startFrac * w;
     const endX = endFrac * w;
 
@@ -108,18 +157,6 @@ export function AudioTrimmer() {
     // Trim region
     ctx.fillStyle = 'rgba(255, 102, 0, 0.08)';
     ctx.fillRect(startX, 0, endX - startX, h);
-
-    // Trim borders
-    ctx.strokeStyle = 'hsl(24, 100%, 50%)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(startX, 0);
-    ctx.lineTo(startX, h);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(endX, 0);
-    ctx.lineTo(endX, h);
-    ctx.stroke();
 
     // Waveform
     ctx.beginPath();
@@ -152,7 +189,36 @@ export function AudioTrimmer() {
     ctx.moveTo(0, centerY);
     ctx.lineTo(w, centerY);
     ctx.stroke();
-  }, [waveformData, audioBuffer, startMs, endMs, durationMs]);
+
+    // Drag handles
+    const drawHandle = (x: number) => {
+      ctx.strokeStyle = 'hsl(24, 100%, 50%)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+
+      // Handle grip
+      ctx.fillStyle = 'hsl(24, 100%, 50%)';
+      ctx.beginPath();
+      ctx.roundRect(x - 5, h / 2 - 14, 10, 28, 3);
+      ctx.fill();
+
+      // Grip lines
+      ctx.strokeStyle = 'hsl(0, 0%, 8%)';
+      ctx.lineWidth = 1;
+      for (let dy = -6; dy <= 6; dy += 4) {
+        ctx.beginPath();
+        ctx.moveTo(x - 3, h / 2 + dy);
+        ctx.lineTo(x + 3, h / 2 + dy);
+        ctx.stroke();
+      }
+    };
+
+    drawHandle(startX);
+    drawHandle(endX);
+  }, [waveformData, audioBuffer, startSec, endSec, durationSec]);
 
   const handlePreview = useCallback(() => {
     if (!audioBuffer || !audioCtxRef.current) return;
@@ -167,10 +233,7 @@ export function AudioTrimmer() {
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
-
-    const startSec = startMs / 1000;
-    const durSec = trimDurationMs / 1000;
-    source.start(0, startSec, durSec);
+    source.start(0, startSec, trimDurationSec);
     sourceRef.current = source;
     setIsPlaying(true);
 
@@ -178,25 +241,19 @@ export function AudioTrimmer() {
       setIsPlaying(false);
       sourceRef.current = null;
     };
-  }, [audioBuffer, startMs, trimDurationMs, isPlaying]);
+  }, [audioBuffer, startSec, trimDurationSec, isPlaying]);
 
   const handleDownload = useCallback(() => {
     if (!audioBuffer) return;
 
     const sampleRate = audioBuffer.sampleRate;
-    const startSample = Math.floor((startMs / 1000) * sampleRate);
-    const endSample = Math.floor((endMs / 1000) * sampleRate);
+    const startSample = Math.floor(startSec * sampleRate);
+    const endSample = Math.floor(endSec * sampleRate);
     const length = endSample - startSample;
 
     if (length <= 0) return;
 
-    const offlineCtx = new OfflineAudioContext(
-      audioBuffer.numberOfChannels,
-      length,
-      sampleRate
-    );
-
-    const trimmedBuffer = offlineCtx.createBuffer(
+    const trimmedBuffer = new AudioContext().createBuffer(
       audioBuffer.numberOfChannels,
       length,
       sampleRate
@@ -218,7 +275,7 @@ export function AudioTrimmer() {
     a.download = `${baseName}_trimmed.wav`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [audioBuffer, startMs, endMs, fileName]);
+  }, [audioBuffer, startSec, endSec, fileName]);
 
   return (
     <div className="space-y-4">
@@ -251,46 +308,49 @@ export function AudioTrimmer() {
         )}
       </div>
 
-      {/* Waveform */}
+      {/* Waveform with drag handles */}
       <div className="hardware-panel rounded-md p-1">
         <canvas
           ref={canvasRef}
           className="w-full rounded-sm"
-          style={{ height: '140px' }}
+          style={{ height: '140px', cursor: dragging ? 'grabbing' : 'default' }}
+          onMouseDown={handleCanvasMouseDown}
         />
       </div>
 
       {audioBuffer && (
         <>
-          {/* Trim controls */}
+          {/* Trim controls in seconds */}
           <div className="flex flex-wrap items-end gap-4 [&_input]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]">
             <div className="flex flex-col gap-1">
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
-                Start (ms)
+                Start (sec)
               </label>
               <input
                 type="number"
-                value={startMs}
-                onChange={(e) => setStartMs(Number(e.target.value) || 0)}
+                step="0.001"
+                value={parseFloat(startSec.toFixed(3))}
+                onChange={(e) => setStartSec(Number(e.target.value) || 0)}
                 className="w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <span className="text-[9px] text-muted-foreground/50 font-mono">
-                {formatTime(startMs)}
+                {formatTime(startSec)}
               </span>
             </div>
 
             <div className="flex flex-col gap-1">
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
-                End (ms)
+                End (sec)
               </label>
               <input
                 type="number"
-                value={endMs}
-                onChange={(e) => setEndMs(Number(e.target.value) || 0)}
+                step="0.001"
+                value={parseFloat(endSec.toFixed(3))}
+                onChange={(e) => setEndSec(Number(e.target.value) || 0)}
                 className="w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <span className="text-[9px] text-muted-foreground/50 font-mono">
-                {formatTime(endMs)}
+                {formatTime(endSec)}
               </span>
             </div>
 
@@ -300,11 +360,11 @@ export function AudioTrimmer() {
               </label>
               <div className="h-7 flex items-center">
                 <span className="font-mono text-xs text-primary">
-                  {formatTime(durationMs)}
+                  {durationSec.toFixed(3)}s
                 </span>
               </div>
               <span className="text-[9px] text-muted-foreground/50 font-mono">
-                {durationMs} ms
+                {formatTime(durationSec)}
               </span>
             </div>
 
@@ -314,11 +374,11 @@ export function AudioTrimmer() {
               </label>
               <div className="h-7 flex items-center">
                 <span className="font-mono text-xs text-primary">
-                  {formatTime(trimDurationMs)}
+                  {trimDurationSec.toFixed(3)}s
                 </span>
               </div>
               <span className="text-[9px] text-muted-foreground/50 font-mono">
-                {trimDurationMs} ms
+                {formatTime(trimDurationSec)}
               </span>
             </div>
           </div>
@@ -333,7 +393,7 @@ export function AudioTrimmer() {
             </button>
             <button
               onClick={handleDownload}
-              disabled={trimDurationMs <= 0}
+              disabled={trimDurationSec <= 0}
               className="surface-raised px-4 py-2 rounded text-xs font-display uppercase tracking-wider text-primary hover:brightness-125 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             >
               ↓ Download WAV
@@ -341,6 +401,11 @@ export function AudioTrimmer() {
           </div>
         </>
       )}
+
+      {/* Sample Calculator */}
+      <div className="mt-4">
+        <SampleCalculator />
+      </div>
     </div>
   );
 }
