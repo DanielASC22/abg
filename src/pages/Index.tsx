@@ -204,10 +204,6 @@ const Index = () => {
               />
             </div>
 
-            <div className="mb-4 md:mb-6">
-              <SampleCalculator />
-            </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4 md:gap-6">
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
