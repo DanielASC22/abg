@@ -11,6 +11,7 @@ export function AudioTrimmer() {
   const [waveformData, setWaveformData] = useState<number[] | null>(null);
   const [dragging, setDragging] = useState<'start' | 'end' | null>(null);
   const [focusedInput, setFocusedInput] = useState<'start' | 'end' | null>(null);
+  const [mode, setMode] = useState<'keep' | 'remove'>('keep');
   const [tapTimes, setTapTimes] = useState<number[]>([]);
   const [tapBpm, setTapBpm] = useState<number | null>(null);
 
@@ -246,14 +247,19 @@ export function AudioTrimmer() {
     const startX = startFrac * w;
     const endX = endFrac * w;
 
-    // Dim outside trim
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(0, 0, startX, h);
-    ctx.fillRect(endX, 0, w - endX, h);
-
-    // Trim region
-    ctx.fillStyle = 'rgba(255, 102, 0, 0.08)';
-    ctx.fillRect(startX, 0, endX - startX, h);
+    // Dim regions based on mode
+    if (mode === 'keep') {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(0, 0, startX, h);
+      ctx.fillRect(endX, 0, w - endX, h);
+      ctx.fillStyle = 'rgba(255, 102, 0, 0.08)';
+      ctx.fillRect(startX, 0, endX - startX, h);
+    } else {
+      ctx.fillStyle = 'rgba(255, 50, 50, 0.15)';
+      ctx.fillRect(startX, 0, endX - startX, h);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(startX, 0, endX - startX, h);
+    }
 
     // Waveform
     ctx.beginPath();
@@ -313,7 +319,7 @@ export function AudioTrimmer() {
 
     drawHandle(startX);
     drawHandle(endX);
-  }, [waveformData, audioBuffer, startSec, endSec, durationSec]);
+  }, [waveformData, audioBuffer, startSec, endSec, durationSec, mode]);
 
   const handlePreview = useCallback(() => {
     if (!audioBuffer || !audioCtxRef.current) return;
@@ -332,33 +338,50 @@ export function AudioTrimmer() {
     const sampleRate = audioBuffer.sampleRate;
     const startSample = Math.floor(startSec * sampleRate);
     const endSample = Math.floor(endSec * sampleRate);
-    const length = endSample - startSample;
 
-    if (length <= 0) return;
+    if (mode === 'keep') {
+      const length = endSample - startSample;
+      if (length <= 0) return;
 
-    const trimmedBuffer = new AudioContext().createBuffer(
-      audioBuffer.numberOfChannels,
-      length,
-      sampleRate
-    );
-
-    for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
-      const src = audioBuffer.getChannelData(ch);
-      const dst = trimmedBuffer.getChannelData(ch);
-      for (let i = 0; i < length; i++) {
-        dst[i] = src[startSample + i];
+      const trimmedBuffer = new AudioContext().createBuffer(
+        audioBuffer.numberOfChannels, length, sampleRate
+      );
+      for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+        const src = audioBuffer.getChannelData(ch);
+        const dst = trimmedBuffer.getChannelData(ch);
+        for (let i = 0; i < length; i++) dst[i] = src[startSample + i];
       }
-    }
+      const blob = encodeWAV(trimmedBuffer);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^.]+$/, '')}_trimmed.wav`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // Remove mode: keep everything outside the selection
+      const totalSamples = audioBuffer.length;
+      const keepLength = totalSamples - (endSample - startSample);
+      if (keepLength <= 0) return;
 
-    const blob = encodeWAV(trimmedBuffer);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const baseName = fileName.replace(/\.[^.]+$/, '');
-    a.download = `${baseName}_trimmed.wav`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [audioBuffer, startSec, endSec, fileName]);
+      const trimmedBuffer = new AudioContext().createBuffer(
+        audioBuffer.numberOfChannels, keepLength, sampleRate
+      );
+      for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+        const src = audioBuffer.getChannelData(ch);
+        const dst = trimmedBuffer.getChannelData(ch);
+        for (let i = 0; i < startSample; i++) dst[i] = src[i];
+        for (let i = endSample; i < totalSamples; i++) dst[startSample + (i - endSample)] = src[i];
+      }
+      const blob = encodeWAV(trimmedBuffer);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^.]+$/, '')}_trimmed.wav`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [audioBuffer, startSec, endSec, fileName, mode]);
 
   return (
     <div className="space-y-4">
@@ -403,24 +426,49 @@ export function AudioTrimmer() {
 
       {audioBuffer && (
         <>
+          {/* Mode toggle */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMode(mode === 'keep' ? 'remove' : 'keep')}
+              className={`surface-raised px-4 py-2 rounded text-xs font-display uppercase tracking-wider transition-all hover:brightness-125 ${
+                mode === 'keep' ? 'text-primary' : 'text-destructive'
+              }`}
+            >
+              {mode === 'keep' ? '✂ Keep Selection' : '✂ Remove Selection'}
+            </button>
+            <span className="text-[9px] text-muted-foreground/50 font-mono">
+              {mode === 'keep' ? 'Audio between start & end will be kept' : 'Audio between start & end will be removed'}
+            </span>
+          </div>
+
           {/* Trim controls */}
           <div className="flex flex-wrap items-end gap-4 [&_input]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]">
             <div className="flex flex-col gap-1">
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
                 Start (sec) <span className="text-muted-foreground/40">← → adjust</span>
               </label>
-              <input
-                type="number"
-                step="0.001"
-                value={parseFloat(startSec.toFixed(3))}
-                onChange={(e) => updateStart(Number(e.target.value) || 0)}
-                onKeyDown={(e) => handleKeyDown(e, 'start')}
-                onFocus={() => setFocusedInput('start')}
-                onBlur={() => setFocusedInput(null)}
-                className={`w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${
-                  focusedInput === 'start' ? 'border-primary' : 'border-border'
-                }`}
-              />
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => updateStart(Math.max(0, parseFloat((startSec - 0.01).toFixed(3))))}
+                  className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                >−</button>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={parseFloat(startSec.toFixed(3))}
+                  onChange={(e) => updateStart(Number(e.target.value) || 0)}
+                  onKeyDown={(e) => handleKeyDown(e, 'start')}
+                  onFocus={() => setFocusedInput('start')}
+                  onBlur={() => setFocusedInput(null)}
+                  className={`w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${
+                    focusedInput === 'start' ? 'border-primary' : 'border-border'
+                  }`}
+                />
+                <button
+                  onClick={() => updateStart(Math.min(endSec, parseFloat((startSec + 0.01).toFixed(3))))}
+                  className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                >+</button>
+              </div>
               <span className="text-[9px] text-muted-foreground/50 font-mono">
                 {formatTime(startSec)}
               </span>
@@ -430,18 +478,28 @@ export function AudioTrimmer() {
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
                 End (sec) <span className="text-muted-foreground/40">← → adjust</span>
               </label>
-              <input
-                type="number"
-                step="0.001"
-                value={parseFloat(endSec.toFixed(3))}
-                onChange={(e) => updateEnd(Number(e.target.value) || 0)}
-                onKeyDown={(e) => handleKeyDown(e, 'end')}
-                onFocus={() => setFocusedInput('end')}
-                onBlur={() => setFocusedInput(null)}
-                className={`w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${
-                  focusedInput === 'end' ? 'border-primary' : 'border-border'
-                }`}
-              />
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => updateEnd(Math.max(startSec, parseFloat((endSec - 0.01).toFixed(3))))}
+                  className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                >−</button>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={parseFloat(endSec.toFixed(3))}
+                  onChange={(e) => updateEnd(Number(e.target.value) || 0)}
+                  onKeyDown={(e) => handleKeyDown(e, 'end')}
+                  onFocus={() => setFocusedInput('end')}
+                  onBlur={() => setFocusedInput(null)}
+                  className={`w-24 h-7 rounded bg-[hsl(var(--surface-inset))] border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary ${
+                    focusedInput === 'end' ? 'border-primary' : 'border-border'
+                  }`}
+                />
+                <button
+                  onClick={() => updateEnd(Math.min(durationSec, parseFloat((endSec + 0.01).toFixed(3))))}
+                  className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                >+</button>
+              </div>
               <span className="text-[9px] text-muted-foreground/50 font-mono">
                 {formatTime(endSec)}
               </span>
@@ -463,7 +521,7 @@ export function AudioTrimmer() {
 
             <div className="flex flex-col gap-1">
               <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
-                Trim Length
+                {mode === 'keep' ? 'Keep Length' : 'Remove Length'}
               </label>
               <div className="h-7 flex items-center">
                 <span className="font-mono text-xs text-primary">
