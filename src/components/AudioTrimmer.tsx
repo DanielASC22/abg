@@ -14,6 +14,9 @@ export function AudioTrimmer() {
   const [mode, setMode] = useState<'keep' | 'remove'>('keep');
   const [tapTimes, setTapTimes] = useState<number[]>([]);
   const [tapBpm, setTapBpm] = useState<number | null>(null);
+  const [semitones, setSemitones] = useState(0);
+  const [hzDetune, setHzDetune] = useState(0);
+  const [speedPercent, setSpeedPercent] = useState(100);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,6 +50,12 @@ export function AudioTrimmer() {
   }, []);
 
   // Start playback from a given offset
+  // Convert Hz detune to cents using 440Hz reference
+  const hzToCents = useCallback((hz: number) => {
+    if (hz === 0) return 0;
+    return 1200 * Math.log2((440 + hz) / 440);
+  }, []);
+
   const startPlaybackFrom = useCallback((offset: number, duration: number) => {
     if (!audioBuffer || !audioCtxRef.current) return;
     stopPlayback();
@@ -54,6 +63,8 @@ export function AudioTrimmer() {
     const ctx = audioCtxRef.current;
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
+    source.playbackRate.value = speedPercent / 100;
+    source.detune.value = semitones * 100 + hzToCents(hzDetune);
     source.connect(ctx.destination);
     source.start(0, offset, duration);
     sourceRef.current = source;
@@ -63,7 +74,7 @@ export function AudioTrimmer() {
       setIsPlaying(false);
       sourceRef.current = null;
     };
-  }, [audioBuffer, stopPlayback]);
+  }, [audioBuffer, stopPlayback, speedPercent, semitones, hzDetune, hzToCents]);
 
   // Auto-restart playback when trim points change
   const updateStart = useCallback((val: number) => {
@@ -549,6 +560,108 @@ export function AudioTrimmer() {
             >
               ↓ Download WAV
             </button>
+          </div>
+
+          {/* Pitch & Speed controls */}
+          <div className="surface-raised rounded-lg p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+              <span className="font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                Pitch & Speed
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-4 [&_input]:appearance-none [&_input::-webkit-inner-spin-button]:appearance-none [&_input::-webkit-outer-spin-button]:appearance-none [&_input]:[-moz-appearance:textfield]">
+              {/* Semitone */}
+              <div className="flex flex-col gap-1">
+                <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
+                  Semitones
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setSemitones(s => s - 1)}
+                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                  >−</button>
+                  <input
+                    type="number"
+                    step="1"
+                    value={semitones}
+                    onChange={(e) => setSemitones(parseInt(e.target.value) || 0)}
+                    className="w-16 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <button
+                    onClick={() => setSemitones(s => s + 1)}
+                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                  >+</button>
+                </div>
+                <span className="text-[9px] text-muted-foreground/50 font-mono">
+                  {semitones > 0 ? '+' : ''}{semitones} st
+                </span>
+              </div>
+
+              {/* Hz fine-tune */}
+              <div className="flex flex-col gap-1">
+                <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
+                  Fine Tune (Hz)
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setHzDetune(h => parseFloat((h - 0.05).toFixed(2)))}
+                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                  >−</button>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={parseFloat(hzDetune.toFixed(2))}
+                    onChange={(e) => setHzDetune(parseFloat(e.target.value) || 0)}
+                    className="w-20 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <button
+                    onClick={() => setHzDetune(h => parseFloat((h + 0.05).toFixed(2)))}
+                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                  >+</button>
+                </div>
+                <span className="text-[9px] text-muted-foreground/50 font-mono">
+                  {hzDetune >= 0 ? '+' : ''}{hzDetune.toFixed(2)} Hz
+                </span>
+              </div>
+
+              {/* Speed % */}
+              <div className="flex flex-col gap-1">
+                <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
+                  Speed (%)
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setSpeedPercent(s => Math.max(1, parseFloat((s - 1).toFixed(1))))}
+                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                  >−</button>
+                  <input
+                    type="number"
+                    step="1"
+                    value={parseFloat(speedPercent.toFixed(1))}
+                    onChange={(e) => setSpeedPercent(Math.max(1, parseFloat(e.target.value) || 100))}
+                    className="w-20 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <button
+                    onClick={() => setSpeedPercent(s => parseFloat((s + 1).toFixed(1)))}
+                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
+                  >+</button>
+                </div>
+                <span className="text-[9px] text-muted-foreground/50 font-mono">
+                  {speedPercent === 100 ? 'Original' : `${speedPercent.toFixed(1)}%`}
+                </span>
+              </div>
+
+              {(semitones !== 0 || hzDetune !== 0 || speedPercent !== 100) && (
+                <button
+                  onClick={() => { setSemitones(0); setHzDetune(0); setSpeedPercent(100); }}
+                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground font-mono self-center"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
         </>
       )}
