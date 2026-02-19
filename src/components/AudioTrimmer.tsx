@@ -783,9 +783,9 @@ export function AudioTrimmer() {
           {tapBpm !== null && (
             <button
               onClick={() => { setTapTimes([]); setTapBpm(null); }}
-              className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground font-mono ml-auto"
+              className="surface-raised px-3 py-1.5 rounded text-[10px] font-display uppercase tracking-wider text-destructive border border-destructive/30 hover:bg-destructive/10 hover:brightness-125 transition-all ml-auto"
             >
-              Reset
+              ⟲ Reset
             </button>
           )}
         </div>
