@@ -88,6 +88,8 @@ export function AudioTrimmer() {
     return 1200 * Math.log2((440 + hz) / 440);
   }, []);
 
+  const playbackEndSecRef = useRef(0);
+
   const drawPlayhead = useCallback(() => {
     const pCanvas = playheadCanvasRef.current;
     if (!pCanvas || !audioCtxRef.current || !durationSec) return;
@@ -104,6 +106,13 @@ export function AudioTrimmer() {
 
     const elapsed = (audioCtxRef.current.currentTime - playbackStartTimeRef.current) * (speedPercent / 100);
     const currentSec = playbackOffsetRef.current + elapsed;
+
+    // Stop drawing if past the playback end point
+    if (currentSec >= playbackEndSecRef.current) {
+      animFrameRef.current = null;
+      return;
+    }
+
     const x = (currentSec / durationSec) * rect.width;
 
     // Playhead line
@@ -139,14 +148,25 @@ export function AudioTrimmer() {
     sourceRef.current = source;
     playbackStartTimeRef.current = ctx.currentTime;
     playbackOffsetRef.current = offset;
+    playbackEndSecRef.current = offset + duration;
     setIsPlaying(true);
 
     // Start animation
     animFrameRef.current = requestAnimationFrame(drawPlayhead);
 
     source.onended = () => {
-      setIsPlaying(false);
       sourceRef.current = null;
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      // Clear playhead
+      const pCanvas = playheadCanvasRef.current;
+      if (pCanvas) {
+        const pCtx = pCanvas.getContext('2d');
+        if (pCtx) pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+      }
+      setIsPlaying(false);
     };
   }, [audioBuffer, stopPlayback, speedPercent, semitones, hzDetune, hzToCents]);
 
@@ -161,24 +181,18 @@ export function AudioTrimmer() {
     lastChangeRef.current = 'end';
   }, []);
 
-  // React to trim changes while playing
+  // React to trim changes while playing — stop and reset
   useEffect(() => {
     if (!isPlaying || !audioBuffer || lastChangeRef.current === null) return;
-    const change = lastChangeRef.current;
     lastChangeRef.current = null;
+    stopPlayback();
+  }, [startSec, endSec]); // intentionally minimal deps
 
-    const dur = Math.max(0, endSec - startSec);
-    if (dur <= 0) { stopPlayback(); return; }
-
-    if (change === 'start') {
-      // Restart from beginning of selection
-      startPlaybackFrom(startSec, dur);
-    } else {
-      // Play from ~2 seconds before the new end
-      const previewStart = Math.max(startSec, endSec - 2);
-      startPlaybackFrom(previewStart, endSec - previewStart);
-    }
-  }, [startSec, endSec]); // intentionally minimal deps to fire on value change
+  // Stop playback when pitch/speed params change
+  useEffect(() => {
+    if (!isPlaying) return;
+    stopPlayback();
+  }, [semitones, hzDetune, speedPercent]); // intentionally minimal deps
 
   const handleFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
