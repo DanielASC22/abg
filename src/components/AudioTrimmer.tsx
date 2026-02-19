@@ -715,33 +715,6 @@ export function AudioTrimmer() {
                 </span>
               </div>
 
-              {/* Hz fine-tune */}
-              <div className="flex flex-col gap-1">
-                <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
-                  Fine Tune (Hz)
-                </label>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setHzDetune(h => parseFloat((h - 0.05).toFixed(2)))}
-                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
-                  >−</button>
-                  <input
-                    type="number"
-                    step="0.05"
-                    value={parseFloat(hzDetune.toFixed(2))}
-                    onChange={(e) => setHzDetune(parseFloat(e.target.value) || 0)}
-                    className="w-20 h-7 rounded bg-[hsl(var(--surface-inset))] border border-border text-center font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button
-                    onClick={() => setHzDetune(h => parseFloat((h + 0.05).toFixed(2)))}
-                    className="surface-raised w-7 h-7 rounded text-xs font-mono text-muted-foreground hover:text-foreground hover:brightness-125 transition-all flex items-center justify-center"
-                  >+</button>
-                </div>
-                <span className="text-[9px] text-muted-foreground/50 font-mono">
-                  {hzDetune >= 0 ? '+' : ''}{hzDetune.toFixed(2)} Hz
-                </span>
-              </div>
-
               {/* Speed % */}
               <div className="flex flex-col gap-1">
                 <label className="font-display text-[9px] uppercase tracking-wider text-muted-foreground">
@@ -769,12 +742,12 @@ export function AudioTrimmer() {
                 </span>
               </div>
 
-              {(semitones !== 0 || hzDetune !== 0 || speedPercent !== 100) && (
+              {(semitones !== 0 || speedPercent !== 100) && (
                 <button
                   onClick={() => { setSemitones(0); setHzDetune(0); setSpeedPercent(100); }}
-                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground font-mono self-center"
+                  className="surface-raised px-3 py-1.5 rounded text-[10px] font-display uppercase tracking-wider text-destructive border border-destructive/30 hover:bg-destructive/10 hover:brightness-125 transition-all self-center"
                 >
-                  Reset
+                  ⟲ Reset
                 </button>
               )}
             </div>
