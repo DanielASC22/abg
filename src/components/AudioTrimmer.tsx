@@ -452,56 +452,69 @@ export function AudioTrimmer() {
     startPlaybackFrom(startSec, trimDurationSec);
   }, [audioBuffer, startSec, trimDurationSec, isPlaying, stopPlayback, startPlaybackFrom]);
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!audioBuffer) return;
 
     const sampleRate = audioBuffer.sampleRate;
     const startSample = Math.floor(startSec * sampleRate);
     const endSample = Math.floor(endSec * sampleRate);
 
+    // Build the source buffer (trimmed or removed)
+    let sourceBuffer: AudioBuffer;
     if (mode === 'keep') {
       const length = endSample - startSample;
       if (length <= 0) return;
-
-      const trimmedBuffer = new AudioContext().createBuffer(
+      sourceBuffer = new OfflineAudioContext(audioBuffer.numberOfChannels, length, sampleRate).createBuffer(
         audioBuffer.numberOfChannels, length, sampleRate
       );
       for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
         const src = audioBuffer.getChannelData(ch);
-        const dst = trimmedBuffer.getChannelData(ch);
+        const dst = sourceBuffer.getChannelData(ch);
         for (let i = 0; i < length; i++) dst[i] = src[startSample + i];
       }
-      const blob = encodeWAV(trimmedBuffer);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileName.replace(/\.[^.]+$/, '')}_trimmed.wav`;
-      a.click();
-      URL.revokeObjectURL(url);
     } else {
-      // Remove mode: keep everything outside the selection
       const totalSamples = audioBuffer.length;
       const keepLength = totalSamples - (endSample - startSample);
       if (keepLength <= 0) return;
-
-      const trimmedBuffer = new AudioContext().createBuffer(
+      sourceBuffer = new OfflineAudioContext(audioBuffer.numberOfChannels, keepLength, sampleRate).createBuffer(
         audioBuffer.numberOfChannels, keepLength, sampleRate
       );
       for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
         const src = audioBuffer.getChannelData(ch);
-        const dst = trimmedBuffer.getChannelData(ch);
+        const dst = sourceBuffer.getChannelData(ch);
         for (let i = 0; i < startSample; i++) dst[i] = src[i];
         for (let i = endSample; i < totalSamples; i++) dst[startSample + (i - endSample)] = src[i];
       }
-      const blob = encodeWAV(trimmedBuffer);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileName.replace(/\.[^.]+$/, '')}_trimmed.wav`;
-      a.click();
-      URL.revokeObjectURL(url);
     }
-  }, [audioBuffer, startSec, endSec, fileName, mode]);
+
+    // Calculate effective rate to determine output length
+    const totalCents = semitones * 100;
+    const effectiveRate = (speedPercent / 100) * Math.pow(2, totalCents / 1200);
+    const outputLength = Math.ceil(sourceBuffer.length / effectiveRate);
+
+    if (outputLength <= 0) return;
+
+    // Render through OfflineAudioContext with pitch/speed applied
+    const offlineCtx = new OfflineAudioContext(
+      sourceBuffer.numberOfChannels, outputLength, sampleRate
+    );
+    const offlineSource = offlineCtx.createBufferSource();
+    offlineSource.buffer = sourceBuffer;
+    offlineSource.playbackRate.value = speedPercent / 100;
+    offlineSource.detune.value = totalCents;
+    offlineSource.connect(offlineCtx.destination);
+    offlineSource.start(0);
+
+    const renderedBuffer = await offlineCtx.startRendering();
+
+    const blob = encodeWAV(renderedBuffer);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace(/\.[^.]+$/, '')}_trimmed.wav`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [audioBuffer, startSec, endSec, fileName, mode, semitones, speedPercent]);
 
   return (
     <div className="space-y-4">
