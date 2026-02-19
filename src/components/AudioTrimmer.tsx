@@ -63,6 +63,24 @@ export function AudioTrimmer() {
     setIsPlaying(false);
   }, []);
 
+  // Cleanup on unmount — stop audio and animation
+  useEffect(() => {
+    return () => {
+      if (sourceRef.current) {
+        try { sourceRef.current.stop(); } catch {}
+        sourceRef.current = null;
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+    };
+  }, []);
+
   // Start playback from a given offset
   // Convert Hz detune to cents using 440Hz reference
   const hzToCents = useCallback((hz: number) => {
