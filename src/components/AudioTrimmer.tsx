@@ -89,8 +89,9 @@ export function AudioTrimmer() {
   }, []);
 
   const playbackEndSecRef = useRef(0);
-  const speedPercentRef = useRef(speedPercent);
-  speedPercentRef.current = speedPercent;
+  // Ref to track the effective buffer consumption rate for the playhead
+  // With AudioBufferSourceNode: effectiveRate = playbackRate * 2^(detune/1200)
+  const effectiveRateRef = useRef(1);
 
   const drawPlayhead = useCallback(() => {
     const pCanvas = playheadCanvasRef.current;
@@ -106,10 +107,8 @@ export function AudioTrimmer() {
     pCtx.scale(dpr, dpr);
     pCtx.clearRect(0, 0, rect.width, rect.height);
 
-    // The effective buffer consumption rate is always speedPercent/100
-    // (we compensate playbackRate to cancel detune's speed effect)
-    const effectiveRate = speedPercentRef.current / 100;
-    const elapsed = (audioCtxRef.current.currentTime - playbackStartTimeRef.current) * effectiveRate;
+    // Use the actual effective rate (playbackRate * pitch factor) for playhead
+    const elapsed = (audioCtxRef.current.currentTime - playbackStartTimeRef.current) * effectiveRateRef.current;
     const regionDuration = playbackEndSecRef.current - playbackOffsetRef.current;
     // Wrap elapsed for looping
     const elapsedWrapped = regionDuration > 0 ? (elapsed % regionDuration) : elapsed;
@@ -146,8 +145,8 @@ export function AudioTrimmer() {
     source.loopEnd = offset + duration;
     const totalCents = semitones * 100 + hzToCents(hzDetune);
     source.detune.value = totalCents;
-    // Compensate playbackRate so pitch changes don't affect speed
-    source.playbackRate.value = (speedPercent / 100) / Math.pow(2, totalCents / 1200);
+    source.playbackRate.value = speedPercent / 100;
+    effectiveRateRef.current = (speedPercent / 100) * Math.pow(2, totalCents / 1200);
     source.connect(ctx.destination);
     source.start(0, offset);
     sourceRef.current = source;
@@ -194,26 +193,26 @@ export function AudioTrimmer() {
   }, [startSec, endSec]); // intentionally minimal deps
 
   // Update pitch/speed in real-time on the live source node
-  // Compensate playbackRate so detune only affects pitch, not speed
   // Re-anchor playhead timing so it stays accurate after rate changes
-  const prevSpeedRef = useRef(speedPercent);
+  const prevEffectiveRateRef = useRef(1);
   useEffect(() => {
     if (!sourceRef.current || !audioCtxRef.current) return;
     // Compute current position in region before changing rate
-    const oldEffectiveRate = prevSpeedRef.current / 100;
     const now = audioCtxRef.current.currentTime;
-    const elapsedOld = (now - playbackStartTimeRef.current) * oldEffectiveRate;
+    const elapsedOld = (now - playbackStartTimeRef.current) * prevEffectiveRateRef.current;
     const regionDuration = playbackEndSecRef.current - playbackOffsetRef.current;
     const posInRegion = regionDuration > 0 ? (elapsedOld % regionDuration) : 0;
-    
-    // Re-anchor so future elapsed calc uses new rate from this point
-    const newEffectiveRate = speedPercent / 100;
-    playbackStartTimeRef.current = now - (posInRegion / newEffectiveRate);
-    prevSpeedRef.current = speedPercent;
 
     const totalCents = semitones * 100 + hzToCents(hzDetune);
+    const newEffectiveRate = (speedPercent / 100) * Math.pow(2, totalCents / 1200);
+
+    // Re-anchor so future elapsed calc uses new rate from this point
+    playbackStartTimeRef.current = now - (posInRegion / newEffectiveRate);
+    effectiveRateRef.current = newEffectiveRate;
+    prevEffectiveRateRef.current = newEffectiveRate;
+
     sourceRef.current.detune.value = totalCents;
-    sourceRef.current.playbackRate.value = (speedPercent / 100) / Math.pow(2, totalCents / 1200);
+    sourceRef.current.playbackRate.value = speedPercent / 100;
   }, [semitones, hzDetune, speedPercent]); // intentionally minimal deps
 
   const handleFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
