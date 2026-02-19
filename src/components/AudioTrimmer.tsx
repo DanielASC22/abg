@@ -89,6 +89,8 @@ export function AudioTrimmer() {
   }, []);
 
   const playbackEndSecRef = useRef(0);
+  const speedPercentRef = useRef(speedPercent);
+  speedPercentRef.current = speedPercent;
 
   const drawPlayhead = useCallback(() => {
     const pCanvas = playheadCanvasRef.current;
@@ -104,18 +106,16 @@ export function AudioTrimmer() {
     pCtx.scale(dpr, dpr);
     pCtx.clearRect(0, 0, rect.width, rect.height);
 
-    const elapsed = (audioCtxRef.current.currentTime - playbackStartTimeRef.current) * (speedPercent / 100);
-    const currentSec = playbackOffsetRef.current + elapsed;
-
-    // Stop drawing if past the playback end point
-    if (currentSec >= playbackEndSecRef.current) {
-      animFrameRef.current = null;
-      return;
-    }
+    // Use actual playbackRate from the source node (accounts for detune shifting speed)
+    const actualRate = sourceRef.current ? sourceRef.current.playbackRate.value : (speedPercentRef.current / 100);
+    const elapsed = (audioCtxRef.current.currentTime - playbackStartTimeRef.current) * actualRate;
+    const regionDuration = playbackEndSecRef.current - playbackOffsetRef.current;
+    // Wrap elapsed for looping
+    const elapsedWrapped = regionDuration > 0 ? (elapsed % regionDuration) : elapsed;
+    const currentSec = playbackOffsetRef.current + elapsedWrapped;
 
     const x = (currentSec / durationSec) * rect.width;
 
-    // Playhead line
     pCtx.strokeStyle = 'rgba(135, 206, 250, 0.8)';
     pCtx.lineWidth = 2;
     pCtx.beginPath();
@@ -123,7 +123,6 @@ export function AudioTrimmer() {
     pCtx.lineTo(x, rect.height);
     pCtx.stroke();
 
-    // Glow
     pCtx.strokeStyle = 'rgba(135, 206, 250, 0.25)';
     pCtx.lineWidth = 6;
     pCtx.beginPath();
@@ -132,7 +131,7 @@ export function AudioTrimmer() {
     pCtx.stroke();
 
     animFrameRef.current = requestAnimationFrame(drawPlayhead);
-  }, [durationSec, speedPercent]);
+  }, [durationSec]);
 
   const startPlaybackFrom = useCallback((offset: number, duration: number) => {
     if (!audioBuffer || !audioCtxRef.current) return;
@@ -141,17 +140,19 @@ export function AudioTrimmer() {
     const ctx = audioCtxRef.current;
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
+    source.loop = true;
+    source.loopStart = offset;
+    source.loopEnd = offset + duration;
     source.playbackRate.value = speedPercent / 100;
     source.detune.value = semitones * 100 + hzToCents(hzDetune);
     source.connect(ctx.destination);
-    source.start(0, offset, duration);
+    source.start(0, offset);
     sourceRef.current = source;
     playbackStartTimeRef.current = ctx.currentTime;
     playbackOffsetRef.current = offset;
     playbackEndSecRef.current = offset + duration;
     setIsPlaying(true);
 
-    // Start animation
     animFrameRef.current = requestAnimationFrame(drawPlayhead);
 
     source.onended = () => {
@@ -160,7 +161,6 @@ export function AudioTrimmer() {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
       }
-      // Clear playhead
       const pCanvas = playheadCanvasRef.current;
       if (pCanvas) {
         const pCtx = pCanvas.getContext('2d');
@@ -168,7 +168,7 @@ export function AudioTrimmer() {
       }
       setIsPlaying(false);
     };
-  }, [audioBuffer, stopPlayback, speedPercent, semitones, hzDetune, hzToCents]);
+  }, [audioBuffer, stopPlayback, speedPercent, semitones, hzDetune, hzToCents, drawPlayhead]);
 
   // Auto-restart playback when trim points change
   const updateStart = useCallback((val: number) => {
