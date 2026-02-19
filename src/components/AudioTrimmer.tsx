@@ -188,11 +188,16 @@ export function AudioTrimmer() {
     stopPlayback();
   }, [startSec, endSec]); // intentionally minimal deps
 
-  // Stop playback when pitch/speed params change
+  // Update pitch/speed in real-time on the live source node
   useEffect(() => {
-    if (!isPlaying) return;
-    stopPlayback();
-  }, [semitones, hzDetune, speedPercent]); // intentionally minimal deps
+    if (!sourceRef.current) return;
+    sourceRef.current.detune.value = semitones * 100 + hzToCents(hzDetune);
+  }, [semitones, hzDetune]); // intentionally minimal deps
+
+  useEffect(() => {
+    if (!sourceRef.current) return;
+    sourceRef.current.playbackRate.value = speedPercent / 100;
+  }, [speedPercent]); // intentionally minimal deps
 
   const handleFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
