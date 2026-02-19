@@ -24,6 +24,10 @@ export function AudioTrimmer() {
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const wasPlayingRef = useRef(false);
   const lastChangeRef = useRef<'start' | 'end' | null>(null);
+  const playbackStartTimeRef = useRef(0);
+  const playbackOffsetRef = useRef(0);
+  const animFrameRef = useRef<number | null>(null);
+  const playheadCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const durationSec = useMemo(() => {
     if (!audioBuffer) return 0;
@@ -46,6 +50,16 @@ export function AudioTrimmer() {
       try { sourceRef.current.stop(); } catch {}
       sourceRef.current = null;
     }
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    // Clear playhead overlay
+    const pCanvas = playheadCanvasRef.current;
+    if (pCanvas) {
+      const pCtx = pCanvas.getContext('2d');
+      if (pCtx) pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+    }
     setIsPlaying(false);
   }, []);
 
@@ -55,6 +69,43 @@ export function AudioTrimmer() {
     if (hz === 0) return 0;
     return 1200 * Math.log2((440 + hz) / 440);
   }, []);
+
+  const drawPlayhead = useCallback(() => {
+    const pCanvas = playheadCanvasRef.current;
+    if (!pCanvas || !audioCtxRef.current || !durationSec) return;
+
+    const pCtx = pCanvas.getContext('2d');
+    if (!pCtx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = pCanvas.getBoundingClientRect();
+    pCanvas.width = rect.width * dpr;
+    pCanvas.height = rect.height * dpr;
+    pCtx.scale(dpr, dpr);
+    pCtx.clearRect(0, 0, rect.width, rect.height);
+
+    const elapsed = (audioCtxRef.current.currentTime - playbackStartTimeRef.current) * (speedPercent / 100);
+    const currentSec = playbackOffsetRef.current + elapsed;
+    const x = (currentSec / durationSec) * rect.width;
+
+    // Playhead line
+    pCtx.strokeStyle = 'rgba(135, 206, 250, 0.8)';
+    pCtx.lineWidth = 2;
+    pCtx.beginPath();
+    pCtx.moveTo(x, 0);
+    pCtx.lineTo(x, rect.height);
+    pCtx.stroke();
+
+    // Glow
+    pCtx.strokeStyle = 'rgba(135, 206, 250, 0.25)';
+    pCtx.lineWidth = 6;
+    pCtx.beginPath();
+    pCtx.moveTo(x, 0);
+    pCtx.lineTo(x, rect.height);
+    pCtx.stroke();
+
+    animFrameRef.current = requestAnimationFrame(drawPlayhead);
+  }, [durationSec, speedPercent]);
 
   const startPlaybackFrom = useCallback((offset: number, duration: number) => {
     if (!audioBuffer || !audioCtxRef.current) return;
@@ -68,7 +119,12 @@ export function AudioTrimmer() {
     source.connect(ctx.destination);
     source.start(0, offset, duration);
     sourceRef.current = source;
+    playbackStartTimeRef.current = ctx.currentTime;
+    playbackOffsetRef.current = offset;
     setIsPlaying(true);
+
+    // Start animation
+    animFrameRef.current = requestAnimationFrame(drawPlayhead);
 
     source.onended = () => {
       setIsPlaying(false);
@@ -427,12 +483,19 @@ export function AudioTrimmer() {
 
       {/* Waveform with drag handles */}
       <div className="hardware-panel rounded-md p-1">
-        <canvas
-          ref={canvasRef}
-          className="w-full rounded-sm"
-          style={{ height: '140px', cursor: dragging ? 'grabbing' : 'default' }}
-          onMouseDown={handleCanvasMouseDown}
-        />
+        <div className="relative">
+          <canvas
+            ref={canvasRef}
+            className="w-full rounded-sm"
+            style={{ height: '140px', cursor: dragging ? 'grabbing' : 'default' }}
+            onMouseDown={handleCanvasMouseDown}
+          />
+          <canvas
+            ref={playheadCanvasRef}
+            className="absolute inset-0 w-full rounded-sm pointer-events-none"
+            style={{ height: '140px' }}
+          />
+        </div>
       </div>
 
       {audioBuffer && (
