@@ -175,14 +175,16 @@ export function AudioTrimmer() {
 
   // Auto-restart playback when trim points change
   const updateStart = useCallback((val: number) => {
-    setStartSec(val);
+    const clamped = Math.max(0, Math.min(val, endSec, durationSec));
+    setStartSec(clamped);
     lastChangeRef.current = 'start';
-  }, []);
+  }, [endSec, durationSec]);
 
   const updateEnd = useCallback((val: number) => {
-    setEndSec(val);
+    const clamped = Math.max(startSec, Math.min(val, durationSec));
+    setEndSec(clamped);
     lastChangeRef.current = 'end';
-  }, []);
+  }, [startSec, durationSec]);
 
   // React to trim changes while playing — stop and reset
   useEffect(() => {
