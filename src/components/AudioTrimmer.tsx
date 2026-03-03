@@ -55,6 +55,7 @@ export function AudioTrimmer() {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+    removeModePlaybackRef.current = null;
     // Clear playhead overlay
     const pCanvas = playheadCanvasRef.current;
     if (pCanvas) {
