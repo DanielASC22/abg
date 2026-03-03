@@ -115,7 +115,18 @@ export function AudioTrimmer() {
     const elapsedWrapped = regionDuration > 0 ? (elapsed % regionDuration) : elapsed;
     const currentSec = playbackOffsetRef.current + elapsedWrapped;
 
-    const x = (currentSec / durationSec) * rect.width;
+    // Map playback position to waveform position
+    let waveformSec = currentSec;
+    const rm = removeModePlaybackRef.current;
+    if (rm) {
+      // In remove mode, the stitched buffer is [0..rmStart] + [rmEnd..duration]
+      // If currentSec >= rmStart, jump over the removed section
+      if (currentSec >= rm.startSec) {
+        waveformSec = currentSec + (rm.endSec - rm.startSec);
+      }
+    }
+
+    const x = (waveformSec / durationSec) * rect.width;
 
     pCtx.strokeStyle = 'rgba(135, 206, 250, 0.8)';
     pCtx.lineWidth = 2;
@@ -442,6 +453,45 @@ export function AudioTrimmer() {
     drawHandle(endX);
   }, [waveformData, audioBuffer, startSec, endSec, durationSec, mode]);
 
+  const startPlaybackWithBuffer = useCallback((buffer: AudioBuffer) => {
+    if (!audioCtxRef.current) return;
+    stopPlayback();
+
+    const ctx = audioCtxRef.current;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.loopStart = 0;
+    source.loopEnd = buffer.duration;
+    const totalCents = semitones * 100 + hzToCents(hzDetune);
+    source.detune.value = totalCents;
+    source.playbackRate.value = speedPercent / 100;
+    effectiveRateRef.current = (speedPercent / 100) * Math.pow(2, totalCents / 1200);
+    source.connect(ctx.destination);
+    source.start(0, 0);
+    sourceRef.current = source;
+    playbackStartTimeRef.current = ctx.currentTime;
+    playbackOffsetRef.current = 0;
+    playbackEndSecRef.current = buffer.duration;
+    setIsPlaying(true);
+
+    animFrameRef.current = requestAnimationFrame(drawPlayhead);
+
+    source.onended = () => {
+      sourceRef.current = null;
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      const pCanvas = playheadCanvasRef.current;
+      if (pCanvas) {
+        const pCtx = pCanvas.getContext('2d');
+        if (pCtx) pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+      }
+      setIsPlaying(false);
+    };
+  }, [stopPlayback, speedPercent, semitones, hzDetune, hzToCents, drawPlayhead]);
+
   const handlePreview = useCallback(() => {
     if (!audioBuffer || !audioCtxRef.current) return;
 
@@ -450,8 +500,28 @@ export function AudioTrimmer() {
       return;
     }
 
-    startPlaybackFrom(startSec, trimDurationSec);
-  }, [audioBuffer, startSec, trimDurationSec, isPlaying, stopPlayback, startPlaybackFrom]);
+    if (mode === 'remove') {
+      // Build a stitched buffer of kept regions: [0..startSec] + [endSec..duration]
+      const sampleRate = audioBuffer.sampleRate;
+      const startSample = Math.floor(startSec * sampleRate);
+      const endSample = Math.floor(endSec * sampleRate);
+      const keepLength = audioBuffer.length - (endSample - startSample);
+      if (keepLength <= 0) return;
+
+      const stitched = audioCtxRef.current.createBuffer(audioBuffer.numberOfChannels, keepLength, sampleRate);
+      for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+        const src = audioBuffer.getChannelData(ch);
+        const dst = stitched.getChannelData(ch);
+        for (let i = 0; i < startSample; i++) dst[i] = src[i];
+        for (let i = endSample; i < audioBuffer.length; i++) dst[startSample + (i - endSample)] = src[i];
+      }
+      removeModePlaybackRef.current = { startSec, endSec };
+      startPlaybackWithBuffer(stitched);
+    } else {
+      removeModePlaybackRef.current = null;
+      startPlaybackFrom(startSec, trimDurationSec);
+    }
+  }, [audioBuffer, startSec, endSec, trimDurationSec, isPlaying, stopPlayback, startPlaybackFrom, startPlaybackWithBuffer, mode]);
 
   const handleDownload = useCallback(async () => {
     if (!audioBuffer) return;
