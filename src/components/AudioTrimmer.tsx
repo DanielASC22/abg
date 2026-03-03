@@ -28,6 +28,7 @@ export function AudioTrimmer() {
   const playbackOffsetRef = useRef(0);
   const animFrameRef = useRef<number | null>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement>(null);
+  const removeModePlaybackRef = useRef<{ startSec: number; endSec: number } | null>(null);
 
   const durationSec = useMemo(() => {
     if (!audioBuffer) return 0;
